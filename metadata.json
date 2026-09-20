@@ -1,0 +1,6 @@
+{
+  "name": "FAITHION",
+  "description": "Guia pessoal para planejar, executar e acompanhar a caminhada cristã.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
