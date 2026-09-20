@@ -122,3 +122,4 @@ class BibleVersionRegistry {
 }
 
 export const bibleVersionRegistry = new BibleVersionRegistry();
+export const BIBLE_VERSIONS: BibleVersion[] = DEFAULT_BIBLE_VERSIONS;

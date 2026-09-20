@@ -25,6 +25,7 @@ interface BibleCompleteReadingModalProps {
   onConfirmComplete: (relatedPlanId?: string, planDayNumber?: number) => void;
   onCreateReflection: (passageRef: string) => void;
   onOpenPrayer: (passageRef: string) => void;
+  onOpenFasting?: (passageRef: string) => void;
   onSetWordOfDay?: (passageRef: string) => void;
 }
 
@@ -40,6 +41,7 @@ export const BibleCompleteReadingModal: React.FC<BibleCompleteReadingModalProps>
   onConfirmComplete,
   onCreateReflection,
   onOpenPrayer,
+  onOpenFasting,
   onSetWordOfDay
 }) => {
   const [selectedPlanId, setSelectedPlanId] = useState<string | undefined>(activePlan?.id);
@@ -169,6 +171,23 @@ export const BibleCompleteReadingModal: React.FC<BibleCompleteReadingModalProps>
                 </div>
                 <ArrowRight className="w-3.5 h-3.5 text-[#7D8882]" />
               </button>
+
+              {onOpenFasting && (
+                <button
+                  onClick={() => {
+                    handleFinalize();
+                    onClose();
+                    onOpenFasting(passageRef);
+                  }}
+                  className="w-full p-2.5 rounded-xl border border-[#E6E6DF] dark:border-[#24322C] hover:bg-amber-50/50 dark:hover:bg-amber-950/20 text-xs font-bold text-[#162E23] dark:text-[#F1F4F2] flex items-center justify-between transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-[#C59B3F]" />
+                    <span>Consagrar Jejum baseado nesta Palavra</span>
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 text-[#7D8882]" />
+                </button>
+              )}
 
               {onSetWordOfDay && (
                 <button

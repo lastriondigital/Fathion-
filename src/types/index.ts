@@ -140,6 +140,69 @@ export interface RoutineAdaptationSuggestion {
   createdAt: string;
 }
 
+export type JourneyAdaptationPatternType = 
+  | 'frequently_ignored' 
+  | 'plan_accumulated' 
+  | 'overcrowded_time' 
+  | 'low_execution_time' 
+  | 'consistency_highlight';
+
+export interface JourneyAdaptationSuggestion {
+  id: string;
+  type: JourneyAdaptationPatternType;
+  title: string; // Ex: "Esta atividade está sendo frequentemente adiada."
+  description: string;
+  detectedPattern: string; // Explicabilidade transparente
+  metricContext: string; // ex: "Adiada 3 vezes nos últimos 5 dias"
+  activityId?: string;
+  activityName?: string;
+  planId?: string;
+  planTitle?: string;
+  block?: RoutineBlock;
+  scheduledTime?: string;
+  suggestedActionText: string;
+  actionPayload: {
+    type: 'reduce_duration' | 'change_block' | 'change_time' | 'spread_plan' | 'pause_temporarily' | 'reinforce_consistency';
+    newDuration?: number;
+    newBlock?: RoutineBlock;
+    newTime?: string;
+    extraDays?: number;
+  };
+  status: 'pending' | 'applied' | 'dismissed' | 'adjusted';
+  createdAt: string;
+}
+
+export interface JourneyGuideRecommendationItem {
+  id: string;
+  title: string;
+  category: TaskCategory;
+  subtitle?: string; // ex: "João 4"
+  passageReference?: string;
+  estimatedMinutes: number;
+  scheduledTime?: string;
+  status: ActivityStatus;
+  why: string;
+  score: number;
+  source: 'plan' | 'routine' | 'task' | 'prayer' | 'fasting' | 'objective';
+  transparentFactors: {
+    routineMatch?: string;
+    planStatus?: string;
+    activityDelay?: string;
+    objectiveAlignment?: string;
+    timeAlignment?: string;
+    historyConsistency?: string;
+    progressImpact?: string;
+  };
+}
+
+export interface JourneyGuideCalculationResult {
+  currentActivity: JourneyGuideRecommendationItem | null;
+  nextActivity: JourneyGuideRecommendationItem | null;
+  subsequentActivities: JourneyGuideRecommendationItem[];
+  explanation: string;
+  adaptations: JourneyAdaptationSuggestion[];
+}
+
 export interface SpiritualGoal {
   id: string;
   title: string;
@@ -260,14 +323,22 @@ export interface ReadingPlan {
 
 export type PrayerCategory = 'family' | 'health' | 'spiritual' | 'gratitude' | 'calling' | 'church' | 'intercession';
 
+export type PrayerStatus = 'ativo' | 'em_oracao' | 'respondido' | 'agradecimento' | 'arquivado';
+
 export interface PrayerRequest {
   id: string;
   title: string;
-  category: PrayerCategory;
   description: string;
+  person?: string; // Pessoa ou causa relacionada
+  category: PrayerCategory;
+  priority: PriorityLevel; // 'alta' | 'media' | 'baixa'
+  date: string; // YYYY-MM-DD
+  status: PrayerStatus; // Ativo | Em oração | Respondido | Agradecimento | Arquivado
+  answer?: string; // Resposta concedida / testemunho
+  notes?: string; // Observações e notas adicionais
   scriptureReferences?: string[];
   createdAt: string;
-  answered: boolean;
+  answered: boolean; // Retrocompatibilidade
   answeredAt?: string;
   answeredTestimony?: string;
   timesPrayed: number;
@@ -275,31 +346,93 @@ export interface PrayerRequest {
   isUrgent?: boolean;
 }
 
+export type PrayerPlanType = 'diario' | 'semanal' | 'personalizado';
+
+export interface PrayerPlan {
+  id: string;
+  title: string;
+  description?: string;
+  type: PrayerPlanType;
+  scheduledTimes: string[]; // ex: ["06:30", "12:30", "21:30"]
+  recurrenceDays: number[]; // [0..6] (0=Domingo, 1=Segunda, etc.)
+  targetMinutes: number; // Duração estimada diária
+  associatedPrayerIds?: string[];
+  isActive: boolean;
+  createdAt: string;
+}
+
 export type FastingType = 'total' | 'partial' | 'daniel' | 'water_only' | 'digital';
+
+export type FastingStatus = 'planejado' | 'em_andamento' | 'concluido' | 'interrompido' | 'cancelado';
 
 export interface FastingPlan {
   id: string;
   title: string;
   type: FastingType;
-  purpose: string; // Propósito espiritual central
-  scriptureVerse: string;
-  startTime: string; // ISO String
+  date: string; // YYYY-MM-DD
+  startTime: string; // "06:00" ou ISO String
+  endTime: string; // "18:00" ou ISO String
   targetHours: number;
-  active: boolean;
-  completed: boolean;
+  purpose: string; // Objetivo espiritual central
+  relatedPrayerId?: string; // Oração relacionada
+  relatedPrayerTitle?: string;
+  relatedPassage?: string; // Passagem bíblica relacionada
+  notes?: string; // Observações
+  status: FastingStatus; // Planejado | Em andamento | Concluído | Interrompido | Cancelado
+  scriptureVerse?: string;
+  active: boolean; // Retrocompatibilidade
+  completed: boolean; // Retrocompatibilidade
   completedAt?: string;
+  interruptedAt?: string;
+  interruptionReason?: string;
+  cancellationReason?: string;
   reflectionsDuringFast?: string;
+  createdAt: string;
 }
 
 export interface Reflection {
   id: string;
   date: string; // YYYY-MM-DD
   scriptureRef?: string;
-  whatGodSpoke: string;
-  practicalApplication: string;
-  gratitudeNotes: string[];
-  moodRating?: 1 | 2 | 3 | 4 | 5; // Estado de espírito
+  whatLearned?: string; // O que aprendi?
+  whatCaughtAttention?: string; // O que me chamou atenção?
+  howToApply?: string; // Como posso aplicar?
+  personalPrayer?: string; // Oração pessoal
+  notes?: string; // Observações
+  relatedActivityId?: string;
+  relatedActivityType?: 'bible' | 'prayer' | 'fasting' | 'routine';
+  relatedTitle?: string;
   createdAt: string;
+  // Campos de retrocompatibilidade:
+  whatGodSpoke?: string;
+  practicalApplication?: string;
+  gratitudeNotes?: string[];
+  moodRating?: 1 | 2 | 3 | 4 | 5;
+}
+
+export type JourneyItemType = 'bible' | 'prayer' | 'fasting' | 'reflection';
+
+export interface JourneyEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  timestamp: string; // ISO String
+  type: JourneyItemType;
+  title: string;
+  subtitle?: string;
+  content?: string;
+  statusBadge?: {
+    label: string;
+    variant: 'neutral' | 'emerald' | 'amber' | 'sky' | 'rose';
+  };
+  passageRef?: string;
+  scriptureRef?: string;
+  description?: string;
+  relatedTitle?: string;
+  reflection?: Reflection;
+  details?: {
+    label: string;
+    value: string;
+  }[];
 }
 
 export interface DailyConsistency {
@@ -320,6 +453,56 @@ export interface VerseOfDay {
   practicalApplication: string;
   bookId: string;
   chapter: number;
+  theme?: string;
+  context?: string;
+  questions?: string[];
+  optionalPrayer?: string;
+}
+
+export interface WordOfTheDay {
+  id: string;
+  date: string; // YYYY-MM-DD
+  reference: string; // ex: "Filipenses 3:13-14", "Josué 1:8-9"
+  passage: string; // Texto bíblico fiel e autêntico
+  version: string; // ex: "NVI", "ARA", "Almeida"
+  theme: string; // ex: "Disciplina e Constância", "Paz nas Decisões"
+  context: string; // Contexto bíblico e histórico
+  reflection: string; // Reflexão teológica e devocional humana
+  questions: string[]; // Perguntas para autoexame pessoal
+  practicalApplication: string; // Sugestão prática para o dia
+  optionalPrayer?: string; // Oração sugerida de resposta
+  contentSource: {
+    bibleSource: string; // ex: "Bíblia Sagrada — Nova Versão Internacional (NVI)"
+    commentarySource: string; // ex: "Meditação devocional FAITHION"
+    isAiAssisted?: boolean; // Transparência de auxílio
+  };
+  matchingCriteria?: {
+    matchedObjective?: string;
+    matchedTheme?: string;
+    matchedPlan?: string;
+    reason: string; // Motivo transparente da escolha
+  };
+  bookId: string;
+  chapter: number;
+  // Campos de compatibilidade com VerseOfDay
+  text: string;
+  whyMeditate: string;
+}
+
+export interface WordOfTheDayHistoryItem {
+  id: string;
+  date: string; // YYYY-MM-DD
+  wordId: string;
+  word: WordOfTheDay;
+  isFavorite: boolean;
+  hasRead: boolean;
+  hasPrayed: boolean;
+  hasShared: boolean;
+  hasFasted: boolean;
+  userReflection?: string;
+  userReflectionId?: string;
+  interactedAt?: string;
+  viewedAt: string;
 }
 
 export interface BibleVersion {

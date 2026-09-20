@@ -99,6 +99,11 @@ export const TOTAL_BIBLE_CHAPTERS = BIBLE_CANON.reduce((acc, book) => acc + book
 export const TOTAL_NT_CHAPTERS = BIBLE_CANON.filter(b => b.testament === 'NT').reduce((acc, b) => acc + b.chaptersCount, 0); // 260
 export const TOTAL_AT_CHAPTERS = BIBLE_CANON.filter(b => b.testament === 'AT').reduce((acc, b) => acc + b.chaptersCount, 0); // 929
 
+export const TESTAMENT_BOOKS = {
+  AT: BIBLE_CANON.filter(b => b.testament === 'AT'),
+  NT: BIBLE_CANON.filter(b => b.testament === 'NT'),
+};
+
 export function findCanonBook(bookIdOrName: string): CanonBook | undefined {
   const norm = bookIdOrName.trim().toLowerCase();
   return BIBLE_CANON.find(b => 

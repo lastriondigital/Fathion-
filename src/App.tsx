@@ -25,28 +25,37 @@ import { GuidedActionModal } from './components/common/GuidedActionModal';
 import { PrayerTimerModal } from './components/prayer/PrayerTimerModal';
 import { NewTaskModal } from './components/tasks/NewTaskModal';
 import { NotificationsDrawer } from './components/common/NotificationsDrawer';
+import { ReflectionModal } from './components/reflection/ReflectionModal';
 
 // Storage & Services & Data
 import { FaithionStorageService } from './services/storage';
 import { NotificationService } from './services/notificationService';
 import { evaluateNextAction } from './services/priorityEngine';
+import { JourneyGuideService } from './services/journeyGuideService';
 import { INITIAL_VERSE_OF_THE_DAY } from './data/bibleData';
 import { 
   SpiritualProfile, 
   DailyTask, 
   ReadingPlan, 
   PrayerRequest, 
+  PrayerPlan,
+  PrayerStatus,
   FastingPlan, 
+  FastingType,
+  FastingStatus,
   Reflection, 
   DailyConsistency,
-  FastingType,
   SpiritualObjective,
   RoutineActivity,
   ActivityExecutionLog,
   RoutineAdaptationSuggestion,
   RoutineBlock,
   ActivityStatus,
-  InternalNotification
+  InternalNotification,
+  PlanDay,
+  PlanFrequency,
+  WordOfTheDay,
+  WordOfTheDayHistoryItem
 } from './types';
 
 export default function App() {
@@ -80,7 +89,9 @@ export default function App() {
   const [tasks, setTasks] = useState<DailyTask[]>(() => FaithionStorageService.getDailyTasks());
   const [plans, setPlans] = useState<ReadingPlan[]>(() => FaithionStorageService.getReadingPlans());
   const [prayers, setPrayers] = useState<PrayerRequest[]>(() => FaithionStorageService.getPrayerRequests());
+  const [prayerPlans, setPrayerPlans] = useState<PrayerPlan[]>(() => FaithionStorageService.getPrayerPlans());
   const [fastingPlan, setFastingPlan] = useState<FastingPlan>(() => FaithionStorageService.getFastingPlan());
+  const [fastingRecords, setFastingRecords] = useState<FastingPlan[]>(() => FaithionStorageService.getFastingRecords());
   const [reflections, setReflections] = useState<Reflection[]>(() => FaithionStorageService.getReflections());
   const [consistencyHistory, setConsistencyHistory] = useState<DailyConsistency[]>(() => 
     FaithionStorageService.getConsistencyHistory()
@@ -103,11 +114,16 @@ export default function App() {
   // Modals state
   const [isGuidedActionOpen, setIsGuidedActionOpen] = useState(false);
   const [guidedTask, setGuidedTask] = useState<DailyTask | null>(null);
+  const [guidedNextTask, setGuidedNextTask] = useState<DailyTask | null>(null);
   const [guidedTaskExplanation, setGuidedTaskExplanation] = useState<string>('');
   const [isPrayerTimerOpen, setIsPrayerTimerOpen] = useState(false);
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
   const [isNotificationsDrawerOpen, setIsNotificationsDrawerOpen] = useState(false);
   const [bibleTarget, setBibleTarget] = useState<{ bookId?: string; chapter?: number } | null>(null);
+
+  // Cross-module contextual triggers
+  const [isReflectionModalOpen, setIsReflectionModalOpen] = useState(false);
+  const [reflectionModalContext, setReflectionModalContext] = useState<{ title?: string; passage?: string } | null>(null);
 
   // Notificações Internas (sem serviços pagos)
   const [notifications, setNotifications] = useState<InternalNotification[]>(() => 
@@ -121,29 +137,193 @@ export default function App() {
   const streakDays = 14;
   const pendingAdaptationsCount = adaptationSuggestions.filter(s => s.status === 'pending').length;
 
+  // Palavra do Dia Personalizada & Histórico
+  const [wordOfTheDay, setWordOfTheDay] = useState<WordOfTheDay>(() => {
+    return FaithionStorageService.getWordOfTheDay();
+  });
+  const [wordHistory, setWordHistory] = useState<WordOfTheDayHistoryItem[]>(() => {
+    return FaithionStorageService.getWordOfTheDayHistory();
+  });
+
+  // Atualiza recomendação da Palavra do Dia com base nos objetivos ativos e preferências
+  useEffect(() => {
+    const updated = FaithionStorageService.getWordOfTheDay({
+      profile,
+      objectives,
+      activePlans: plans
+    });
+    setWordOfTheDay(updated);
+    setWordHistory(FaithionStorageService.getWordOfTheDayHistory());
+  }, [objectives, profile.preferredBibleVersion, plans]);
+
+  const handleRecalculateWordOfDay = () => {
+    const fresh = FaithionStorageService.getWordOfTheDay({
+      profile,
+      objectives,
+      activePlans: plans,
+      forceNew: true
+    });
+    setWordOfTheDay(fresh);
+    setWordHistory(FaithionStorageService.getWordOfTheDayHistory());
+    NotificationService.addNotification({
+      title: 'Palavra do Dia Atualizada',
+      message: `Recomendação recalculada com base nos seus objetivos atuais.`,
+      type: 'plano',
+      targetTab: 'today'
+    });
+  };
+
+  const handleToggleWordFavorite = (wordId: string) => {
+    const updated = FaithionStorageService.toggleWordOfTheDayFavorite(wordId);
+    setWordHistory(updated);
+  };
+
+  const handleSaveWordReflection = (wordId: string, reflectionText: string) => {
+    FaithionStorageService.saveWordOfTheDayUserReflection(wordId, reflectionText);
+    setWordHistory(FaithionStorageService.getWordOfTheDayHistory());
+    NotificationService.addNotification({
+      title: 'Reflexão Salva',
+      message: 'Sua meditação na Palavra do Dia foi guardada com sucesso.',
+      type: 'lembrete',
+      targetTab: 'journey'
+    });
+  };
+
+  const handleSetWordOfDayFromBible = (reference: string, text: string, bookId?: string, chapter?: number) => {
+    const customWord: WordOfTheDay = {
+      id: `custom-word-${Date.now()}`,
+      date: new Date().toISOString().split('T')[0],
+      reference,
+      passage: text,
+      version: profile.preferredBibleVersion || 'NVI',
+      theme: 'Passagem Selecionada na Bíblia',
+      context: `Passagem selecionada na leitura bíblica de ${reference}.`,
+      reflection: 'Meditação pessoal nas Sagradas Escrituras.',
+      questions: [
+        'O que esta passagem bíblica me ensina sobre a fidelidade e vontade de Deus?',
+        'Como posso praticar este ensinamento ao longo do meu dia?'
+      ],
+      practicalApplication: 'Guarde este versículo na memória e pratique a obediência ao longo do dia.',
+      optionalPrayer: 'Senhor meu Deus, grava Tua verdade em meu coração e guia meus passos segundo a Tua Palavra.',
+      contentSource: {
+        bibleSource: `Bíblia Sagrada (${profile.preferredBibleVersion || 'NVI'})`,
+        commentarySource: 'Seleção direta do leitor',
+        isAiAssisted: false
+      },
+      matchingCriteria: {
+        reason: 'Selecionada diretamente por você durante a leitura bíblica'
+      },
+      bookId: bookId || 'salmos',
+      chapter: chapter || 1,
+      text,
+      whyMeditate: `Passagem selecionada na leitura bíblica de ${reference}.`
+    };
+    FaithionStorageService.setCustomWordOfTheDay(customWord);
+    setWordOfTheDay(customWord);
+    setWordHistory(FaithionStorageService.getWordOfTheDayHistory());
+    NotificationService.addNotification({
+      title: 'Palavra do Dia Definida',
+      message: `${reference} foi definida como sua Palavra do Dia!`,
+      type: 'lembrete',
+      targetTab: 'today'
+    });
+  };
+
+  const handleOpenPrayerWithVerse = (title: string, passage: string) => {
+    handleAddPrayer({
+      title,
+      description: `Meditação e oração na passagem: "${passage}"`,
+      person: 'Pessoal',
+      category: 'spiritual',
+      priority: 'media',
+      date: new Date().toISOString().split('T')[0],
+      status: 'ativo',
+      notes: ''
+    });
+    setActiveTab('prayer');
+  };
+
+  const handleOpenFastingWithPassage = (passage: string) => {
+    setActiveTab('fasting');
+  };
+
+  const handleOpenReflectionWithPassage = (passage: string, theme?: string) => {
+    setReflectionModalContext({
+      title: theme ? `Reflexão: ${theme}` : 'Reflexão na Palavra do Dia',
+      passage
+    });
+    setIsReflectionModalOpen(true);
+  };
+
+  const handleOpenBibleAt = (bookId: string, chapter: number) => {
+    setBibleTarget({ bookId, chapter });
+    setActiveTab('bible');
+  };
+
   // Sincroniza alertas internos suavemente
   useEffect(() => {
     const notifs = NotificationService.syncInternalStatusAlerts(tasks, activeReadingPlan, fastingPlan);
     setNotifications(notifs);
   }, [tasks, activeReadingPlan?.id, fastingPlan.active]);
 
-  // Lógica: "O QUE FAÇO AGORA?" (Motor de Prioridade Operacional)
+  // Lógica: "O QUE FAÇO AGORA?" (Motor do Guia da Jornada)
   const handleOpenWhatNow = () => {
-    const result = evaluateNextAction(tasks, activeReadingPlan, fastingPlan);
-    setGuidedTask(result.nextTask);
-    setGuidedTaskExplanation(result.explanation);
-    setIsGuidedActionOpen(true);
+    const guideResult = JourneyGuideService.computeJourneyGuide({
+      tasks,
+      plans,
+      routineActivities,
+      executionLogs,
+      objectives,
+      profile,
+      prayers,
+      fastingPlan
+    });
+
+    if (guideResult.currentActivity) {
+      const task1 = tasks.find(t => t.id === guideResult.currentActivity?.id) || {
+        id: guideResult.currentActivity.id,
+        title: guideResult.currentActivity.title,
+        category: guideResult.currentActivity.category,
+        passageReference: guideResult.currentActivity.passageReference,
+        estimatedMinutes: guideResult.currentActivity.estimatedMinutes,
+        scheduledTime: guideResult.currentActivity.scheduledTime || 'Agora',
+        status: guideResult.currentActivity.status,
+        why: guideResult.currentActivity.why,
+        completed: false,
+        order: 1
+      };
+      setGuidedTask(task1);
+
+      if (guideResult.nextActivity) {
+        const task2 = tasks.find(t => t.id === guideResult.nextActivity?.id) || {
+          id: guideResult.nextActivity.id,
+          title: guideResult.nextActivity.title,
+          category: guideResult.nextActivity.category,
+          passageReference: guideResult.nextActivity.passageReference,
+          estimatedMinutes: guideResult.nextActivity.estimatedMinutes,
+          scheduledTime: guideResult.nextActivity.scheduledTime || 'Depois',
+          status: guideResult.nextActivity.status,
+          why: guideResult.nextActivity.why,
+          completed: false,
+          order: 2
+        };
+        setGuidedNextTask(task2);
+      } else {
+        setGuidedNextTask(null);
+      }
+
+      setGuidedTaskExplanation(guideResult.explanation);
+      setIsGuidedActionOpen(true);
+    } else {
+      setGuidedTask(null);
+      setGuidedNextTask(null);
+      setGuidedTaskExplanation('Todas as atividades planejadas para o momento foram completadas.');
+      setIsGuidedActionOpen(true);
+    }
   };
 
   const handleContinueJourney = () => {
-    const result = evaluateNextAction(tasks, activeReadingPlan, fastingPlan);
-    if (result.nextTask) {
-      setGuidedTask(result.nextTask);
-      setGuidedTaskExplanation(result.explanation);
-      setIsGuidedActionOpen(true);
-    } else {
-      setActiveTab('journey');
-    }
+    handleOpenWhatNow();
   };
 
   // Handlers operacionais de tarefas
@@ -279,10 +459,90 @@ export default function App() {
     setPlans(updated);
   };
 
+  const handleCreatePlan = (plan: ReadingPlan) => {
+    const updated = FaithionStorageService.addReadingPlan(plan);
+    setPlans(updated);
+  };
+
+  const handleUpdatePlan = (planId: string, updates: Partial<ReadingPlan>) => {
+    const updated = FaithionStorageService.updateReadingPlan(planId, updates);
+    setPlans(updated);
+  };
+
+  const handleDeletePlan = (planId: string) => {
+    const updated = FaithionStorageService.deleteReadingPlan(planId);
+    setPlans(updated);
+  };
+
+  const handleDuplicatePlan = (planId: string) => {
+    const updated = FaithionStorageService.duplicateReadingPlan(planId);
+    setPlans(updated);
+  };
+
+  const handlePausePlan = (planId: string) => {
+    const updated = FaithionStorageService.pauseReadingPlan(planId);
+    setPlans(updated);
+  };
+
+  const handleResumePlan = (planId: string) => {
+    const updated = FaithionStorageService.resumeReadingPlan(planId);
+    setPlans(updated);
+  };
+
+  const handleArchivePlan = (planId: string) => {
+    const updated = FaithionStorageService.archiveReadingPlan(planId);
+    setPlans(updated);
+  };
+
+  const handleUnarchivePlan = (planId: string) => {
+    const updated = FaithionStorageService.unarchiveReadingPlan(planId);
+    setPlans(updated);
+  };
+
+  const handleContinueWhereLeftOff = (planId: string) => {
+    const updated = FaithionStorageService.continuePlanFromWhereLeftOff(planId);
+    setPlans(updated);
+  };
+
+  const handleReorganizePlan = (planId: string, newStartDate?: string, freq?: PlanFrequency, daysOfWeek?: number[]) => {
+    const updated = FaithionStorageService.reorganizePlanSchedule(planId, newStartDate, freq, daysOfWeek);
+    setPlans(updated);
+  };
+
+  const handleAddDayToPlan = (planId: string, day: Omit<PlanDay, 'dayNumber'>) => {
+    const updated = FaithionStorageService.addDayToPlan(planId, day);
+    setPlans(updated);
+  };
+
+  const handleRemoveDayFromPlan = (planId: string, dayNumber: number) => {
+    const updated = FaithionStorageService.removeDayFromPlan(planId, dayNumber);
+    setPlans(updated);
+  };
+
+  const handleReorderPlanDays = (planId: string, days: PlanDay[]) => {
+    const updated = FaithionStorageService.reorderPlanDays(planId, days);
+    setPlans(updated);
+  };
+
   // Handlers de Oração
   const handleAddPrayer = (newPrayerData: Omit<PrayerRequest, 'id' | 'createdAt' | 'answered' | 'timesPrayed'>) => {
     FaithionStorageService.addPrayerRequest(newPrayerData);
     setPrayers(FaithionStorageService.getPrayerRequests());
+  };
+
+  const handleUpdatePrayer = (id: string, updates: Partial<PrayerRequest>) => {
+    const updated = FaithionStorageService.updatePrayerRequest(id, updates);
+    setPrayers(updated);
+  };
+
+  const handleDeletePrayer = (id: string) => {
+    const updated = FaithionStorageService.deletePrayerRequest(id);
+    setPrayers(updated);
+  };
+
+  const handleSetPrayerStatus = (id: string, status: PrayerStatus, answer?: string, notes?: string) => {
+    const updated = FaithionStorageService.setPrayerStatus(id, status, answer, notes);
+    setPrayers(updated);
   };
 
   const handleTogglePrayerAnswered = (id: string, testimony?: string) => {
@@ -296,21 +556,99 @@ export default function App() {
     setConsistencyHistory(FaithionStorageService.getConsistencyHistory());
   };
 
+  // Handlers de Planos de Oração
+  const handleAddPrayerPlan = (plan: Omit<PrayerPlan, 'id' | 'createdAt'>) => {
+    FaithionStorageService.addPrayerPlan(plan);
+    setPrayerPlans(FaithionStorageService.getPrayerPlans());
+  };
+
+  const handleUpdatePrayerPlan = (id: string, updates: Partial<PrayerPlan>) => {
+    const updated = FaithionStorageService.updatePrayerPlan(id, updates);
+    setPrayerPlans(updated);
+  };
+
+  const handleDeletePrayerPlan = (id: string) => {
+    const updated = FaithionStorageService.deletePrayerPlan(id);
+    setPrayerPlans(updated);
+  };
+
   // Handlers de Jejum
   const handleStartFasting = (purpose: string, targetHours: number, type: FastingType) => {
     const newFast = FaithionStorageService.startFasting(purpose, targetHours, type);
     setFastingPlan(newFast);
+    setFastingRecords(FaithionStorageService.getFastingRecords());
   };
 
   const handleStopFasting = (reflections?: string) => {
     const endedFast = FaithionStorageService.stopFasting(reflections);
     setFastingPlan(endedFast);
+    setFastingRecords(FaithionStorageService.getFastingRecords());
+  };
+
+  const handleCreateFasting = (data: any) => {
+    FaithionStorageService.addFastingRecord(data);
+    setFastingRecords(FaithionStorageService.getFastingRecords());
+    setFastingPlan(FaithionStorageService.getFastingPlan());
+  };
+
+  const handleStartFastingRecord = (id: string) => {
+    FaithionStorageService.startFastingRecord(id);
+    setFastingRecords(FaithionStorageService.getFastingRecords());
+    setFastingPlan(FaithionStorageService.getFastingPlan());
+  };
+
+  const handleCompleteFastingRecord = (id: string, reflections?: string) => {
+    FaithionStorageService.completeFastingRecord(id, reflections);
+    setFastingRecords(FaithionStorageService.getFastingRecords());
+    setFastingPlan(FaithionStorageService.getFastingPlan());
+  };
+
+  const handleInterruptFastingRecord = (id: string, reason?: string) => {
+    FaithionStorageService.interruptFastingRecord(id, reason);
+    setFastingRecords(FaithionStorageService.getFastingRecords());
+    setFastingPlan(FaithionStorageService.getFastingPlan());
+  };
+
+  const handleCancelFastingRecord = (id: string, reason?: string) => {
+    FaithionStorageService.cancelFastingRecord(id, reason);
+    setFastingRecords(FaithionStorageService.getFastingRecords());
+    setFastingPlan(FaithionStorageService.getFastingPlan());
+  };
+
+  const handleDeleteFastingRecord = (id: string) => {
+    const updated = FaithionStorageService.deleteFastingRecord(id);
+    setFastingRecords(updated);
+    setFastingPlan(FaithionStorageService.getFastingPlan());
   };
 
   // Handlers de Reflexão
   const handleAddReflection = (reflData: Omit<Reflection, 'id' | 'createdAt'>) => {
     FaithionStorageService.addReflection(reflData);
     setReflections(FaithionStorageService.getReflections());
+  };
+
+  const handleUpdateReflection = (id: string, updates: Partial<Reflection>) => {
+    const updated = FaithionStorageService.updateReflection(id, updates);
+    setReflections(updated);
+  };
+
+  const handleDeleteReflection = (id: string) => {
+    const updated = FaithionStorageService.deleteReflection(id);
+    setReflections(updated);
+  };
+
+  // Navegação Cruzada Inteligente (Bíblia -> Oração -> Jejum -> Reflexão)
+  const handleOpenFastingFromPrayer = (prayerTitle: string, prayerId?: string) => {
+    setActiveTab('fasting');
+  };
+
+  const handleOpenFastingFromBible = (passageRef: string) => {
+    setActiveTab('fasting');
+  };
+
+  const handleTriggerReflectionModal = (contextTitle: string, passageRef?: string) => {
+    setReflectionModalContext({ title: contextTitle, passage: passageRef });
+    setIsReflectionModalOpen(true);
   };
 
   // Handlers de Perfil
@@ -384,7 +722,16 @@ export default function App() {
               onIgnoreTask={handleIgnoreTask}
               onCancelTask={handleCancelTask}
               onSetTaskStatus={handleSetTaskStatus}
-              verseOfDay={INITIAL_VERSE_OF_THE_DAY}
+              verseOfDay={wordOfTheDay}
+              wordOfTheDay={wordOfTheDay}
+              wordHistory={wordHistory}
+              onToggleWordFavorite={handleToggleWordFavorite}
+              onSaveWordReflection={handleSaveWordReflection}
+              onRecalculateWordOfDay={handleRecalculateWordOfDay}
+              onOpenPrayerWithVerse={handleOpenPrayerWithVerse}
+              onOpenFastingWithPassage={handleOpenFastingWithPassage}
+              onOpenReflectionWithPassage={handleOpenReflectionWithPassage}
+              onOpenBibleAt={handleOpenBibleAt}
               activePlan={activeReadingPlan}
               fastingPlan={fastingPlan}
               streakDays={streakDays}
@@ -432,10 +779,19 @@ export default function App() {
                 handleAddPrayer({
                   title: `Oração sobre ${ref}`,
                   category: 'spiritual',
+                  priority: 'media',
+                  date: new Date().toISOString().split('T')[0],
+                  status: 'ativo',
                   description: `Meditação e consagração: "${verseText}"`,
                   scriptureReferences: [ref]
                 });
                 setActiveTab('prayer');
+              }}
+              onOpenFastingWithPassage={(ref) => {
+                handleOpenFastingFromBible(ref);
+              }}
+              onSetVerseOfDay={(ref, text) => {
+                handleSetWordOfDayFromBible(ref, text);
               }}
               onSaveReflection={handleAddReflection}
               onNavigateToTab={(tab) => setActiveTab(tab)}
@@ -451,6 +807,19 @@ export default function App() {
                 setBibleTarget({ bookId, chapter });
                 setActiveTab('bible');
               }}
+              onCreatePlan={handleCreatePlan}
+              onUpdatePlan={handleUpdatePlan}
+              onDeletePlan={handleDeletePlan}
+              onDuplicatePlan={handleDuplicatePlan}
+              onPausePlan={handlePausePlan}
+              onResumePlan={handleResumePlan}
+              onArchivePlan={handleArchivePlan}
+              onUnarchivePlan={handleUnarchivePlan}
+              onContinueWhereLeftOff={handleContinueWhereLeftOff}
+              onReorganizePlan={handleReorganizePlan}
+              onAddDayToPlan={handleAddDayToPlan}
+              onRemoveDayFromPlan={handleRemoveDayFromPlan}
+              onReorderPlanDays={handleReorderPlanDays}
             />
           )}
 
@@ -458,16 +827,37 @@ export default function App() {
             <PrayerView
               prayers={prayers}
               onAddPrayer={handleAddPrayer}
+              onUpdatePrayer={handleUpdatePrayer}
+              onDeletePrayer={handleDeletePrayer}
               onToggleAnswered={handleTogglePrayerAnswered}
+              onSetPrayerStatus={handleSetPrayerStatus}
+              prayerPlans={prayerPlans}
+              onAddPrayerPlan={handleAddPrayerPlan}
+              onUpdatePrayerPlan={handleUpdatePrayerPlan}
+              onDeletePrayerPlan={handleDeletePrayerPlan}
               onOpenTimer={() => setIsPrayerTimerOpen(true)}
+              onOpenFastingWithPrayer={handleOpenFastingFromPrayer}
+              onOpenReflection={handleTriggerReflectionModal}
             />
           )}
 
           {activeTab === 'fasting' && (
             <FastingView
               fastingPlan={fastingPlan}
+              fastingRecords={fastingRecords}
+              prayers={prayers}
               onStartFasting={handleStartFasting}
               onStopFasting={handleStopFasting}
+              onCreateFasting={handleCreateFasting}
+              onStartFastingRecord={handleStartFastingRecord}
+              onCompleteFastingRecord={handleCompleteFastingRecord}
+              onInterruptFastingRecord={handleInterruptFastingRecord}
+              onCancelFastingRecord={handleCancelFastingRecord}
+              onDeleteFastingRecord={handleDeleteFastingRecord}
+              onNavigateToBible={(ref) => {
+                setActiveTab('bible');
+              }}
+              onOpenReflection={handleTriggerReflectionModal}
             />
           )}
 
@@ -476,8 +866,13 @@ export default function App() {
               profile={profile}
               reflections={reflections}
               onAddReflection={handleAddReflection}
+              onUpdateReflection={handleUpdateReflection}
+              onDeleteReflection={handleDeleteReflection}
               consistencyHistory={consistencyHistory}
               onUpdateProfileGoals={handleUpdateProfileGoals}
+              onNavigateToBible={(ref) => setActiveTab('bible')}
+              onNavigateToPrayer={() => setActiveTab('prayer')}
+              onNavigateToFasting={() => setActiveTab('fasting')}
             />
           )}
 
@@ -564,6 +959,21 @@ export default function App() {
         isOpen={isNewTaskOpen}
         onClose={() => setIsNewTaskOpen(false)}
         onAddTask={handleAddTask}
+      />
+
+      <ReflectionModal
+        isOpen={isReflectionModalOpen}
+        onClose={() => {
+          setIsReflectionModalOpen(false);
+          setReflectionModalContext(null);
+        }}
+        onSave={(refl) => {
+          handleAddReflection(refl);
+          setIsReflectionModalOpen(false);
+          setReflectionModalContext(null);
+        }}
+        relatedTitle={reflectionModalContext?.title}
+        scriptureRef={reflectionModalContext?.passage}
       />
 
     </div>

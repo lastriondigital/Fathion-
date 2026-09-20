@@ -25,6 +25,8 @@ import {
 import { 
   DailyTask, 
   VerseOfDay, 
+  WordOfTheDay,
+  WordOfTheDayHistoryItem,
   SpiritualProfile, 
   ReadingPlan, 
   FastingPlan, 
@@ -35,6 +37,9 @@ import {
 } from '../types';
 import { NavTabId } from '../components/layout/Sidebar';
 import { evaluateNextAction } from '../services/priorityEngine';
+import { WordOfDayCard } from '../components/wordOfDay/WordOfDayCard';
+import { WordOfDayHistoryModal } from '../components/wordOfDay/WordOfDayHistoryModal';
+import { FaithionStorageService } from '../services/storage';
 
 interface TodayViewProps {
   profile: SpiritualProfile;
@@ -45,7 +50,16 @@ interface TodayViewProps {
   onIgnoreTask: (id: string, reason?: string) => void;
   onCancelTask: (id: string, reason?: string) => void;
   onSetTaskStatus: (id: string, status: ActivityStatus, notes?: string) => void;
-  verseOfDay: VerseOfDay;
+  verseOfDay: VerseOfDay | WordOfTheDay;
+  wordOfTheDay?: WordOfTheDay;
+  wordHistory?: WordOfTheDayHistoryItem[];
+  onToggleWordFavorite?: (wordId: string) => void;
+  onSaveWordReflection?: (wordId: string, reflectionText: string) => void;
+  onRecalculateWordOfDay?: () => void;
+  onOpenPrayerWithVerse?: (title: string, passage: string) => void;
+  onOpenFastingWithPassage?: (passage: string) => void;
+  onOpenReflectionWithPassage?: (passage: string, theme?: string) => void;
+  onOpenBibleAt?: (bookId: string, chapter: number) => void;
   activePlan?: ReadingPlan;
   fastingPlan: FastingPlan;
   streakDays: number;
@@ -69,6 +83,15 @@ export const TodayView: React.FC<TodayViewProps> = ({
   onCancelTask,
   onSetTaskStatus,
   verseOfDay,
+  wordOfTheDay,
+  wordHistory,
+  onToggleWordFavorite,
+  onSaveWordReflection,
+  onRecalculateWordOfDay,
+  onOpenPrayerWithVerse,
+  onOpenFastingWithPassage,
+  onOpenReflectionWithPassage,
+  onOpenBibleAt,
   activePlan,
   fastingPlan,
   streakDays,
@@ -81,6 +104,63 @@ export const TodayView: React.FC<TodayViewProps> = ({
   onNavigateToTab,
   onOpenPrayerTimer
 }) => {
+  const [isWordHistoryOpen, setIsWordHistoryOpen] = useState(false);
+  const [localWordHistory, setLocalWordHistory] = useState<WordOfTheDayHistoryItem[]>(() => {
+    return wordHistory || FaithionStorageService.getWordOfTheDayHistory();
+  });
+
+  useEffect(() => {
+    if (wordHistory) {
+      setLocalWordHistory(wordHistory);
+    }
+  }, [wordHistory]);
+
+  const handleToggleHistoryFavorite = (wordId: string) => {
+    if (onToggleWordFavorite) {
+      onToggleWordFavorite(wordId);
+    }
+    const updated = FaithionStorageService.toggleWordOfTheDayFavorite(wordId);
+    setLocalWordHistory(updated);
+  };
+
+  const handleSaveHistoryReflection = (wordId: string, text: string) => {
+    if (onSaveWordReflection) {
+      onSaveWordReflection(wordId, text);
+    }
+    FaithionStorageService.saveWordOfTheDayUserReflection(wordId, text);
+    setLocalWordHistory(FaithionStorageService.getWordOfTheDayHistory());
+  };
+
+  // Normaliza o objeto para WordOfTheDay
+  const currentWord: WordOfTheDay = wordOfTheDay || ('passage' in verseOfDay ? (verseOfDay as WordOfTheDay) : {
+    id: `wotd-${verseOfDay.bookId}-${verseOfDay.chapter}`,
+    date: new Date().toISOString().split('T')[0],
+    reference: verseOfDay.reference,
+    passage: verseOfDay.text,
+    text: verseOfDay.text,
+    version: verseOfDay.version,
+    theme: verseOfDay.theme || 'Reflexão Bíblica Diária',
+    context: verseOfDay.whyMeditate,
+    whyMeditate: verseOfDay.whyMeditate,
+    reflection: verseOfDay.whyMeditate,
+    questions: verseOfDay.questions || [
+      'O que esta passagem bíblica me ensina sobre o caráter de Deus?',
+      'Como posso praticar este princípio nas minhas decisões hoje?'
+    ],
+    practicalApplication: verseOfDay.practicalApplication,
+    optionalPrayer: verseOfDay.optionalPrayer,
+    contentSource: {
+      bibleSource: `Bíblia Sagrada (${verseOfDay.version})`,
+      commentarySource: 'Exposição devocional FAITHION'
+    },
+    bookId: verseOfDay.bookId,
+    chapter: verseOfDay.chapter
+  });
+
+  const isCurrentWordFavorite = localWordHistory.find(
+    h => h.wordId === currentWord.id || h.date === currentWord.date
+  )?.isFavorite || false;
+
   const [expandedWhyId, setExpandedWhyId] = useState<string | null>(null);
   const [justFinishedMessage, setJustFinishedMessage] = useState<string | null>(null);
   const [statusSelectorOpenId, setStatusSelectorOpenId] = useState<string | null>(null);
@@ -212,56 +292,42 @@ export const TodayView: React.FC<TodayViewProps> = ({
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-16">
       
-      {/* 1. PALAVRA DO DIA */}
-      <section 
-        id="section-palavra-do-dia" 
-        className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-[#141C19] border border-[#E6E6DF] dark:border-[#24322C] shadow-xs relative overflow-hidden"
-      >
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#C59B3F]" />
-            <span className="text-xs uppercase tracking-widest font-bold text-[#7D8882] dark:text-[#788780]">
-              1. Palavra do Dia
-            </span>
-          </div>
-          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#E6F0EA] dark:bg-[#192D23] text-[#162E23] dark:text-[#4F8E71]">
-            {verseOfDay.reference} ({verseOfDay.version})
-          </span>
-        </div>
-
-        <blockquote className="font-serif-scripture text-base sm:text-lg text-[#19211D] dark:text-[#F1F4F2] leading-relaxed italic my-3">
-          "{verseOfDay.text}"
-        </blockquote>
-
-        <div className="grid sm:grid-cols-2 gap-3 mt-4 pt-3 border-t border-neutral-100 dark:border-neutral-800/80 text-xs">
-          <div>
-            <span className="font-bold text-[#29523F] dark:text-[#4F8E71] block mb-0.5">
-              Por que meditar nisto hoje:
-            </span>
-            <p className="text-[#4B554F] dark:text-[#B0BBB5] leading-relaxed">
-              {verseOfDay.whyMeditate}
-            </p>
-          </div>
-          <div>
-            <span className="font-bold text-[#C59B3F] block mb-0.5">
-              Aplicação Prática:
-            </span>
-            <p className="text-[#4B554F] dark:text-[#B0BBB5] leading-relaxed">
-              {verseOfDay.practicalApplication}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 flex items-center justify-end">
-          <button
-            onClick={() => onNavigateToTab('bible')}
-            className="flex items-center gap-1.5 text-xs font-semibold text-[#162E23] dark:text-[#4F8E71] hover:underline"
-          >
-            <span>Ler capítulo completo na Bíblia</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </section>
+      {/* 1. PALAVRA DO DIA PERSONALIZADA */}
+      <WordOfDayCard
+        word={currentWord}
+        isFavorite={isCurrentWordFavorite}
+        onToggleFavorite={handleToggleHistoryFavorite}
+        onOpenBible={(bookId, chapter) => {
+          if (onOpenBibleAt) {
+            onOpenBibleAt(bookId, chapter);
+          } else {
+            onNavigateToTab('bible');
+          }
+        }}
+        onOpenPrayer={(ref, text) => {
+          if (onOpenPrayerWithVerse) {
+            onOpenPrayerWithVerse(`Oração sobre ${ref}`, text);
+          } else {
+            onOpenPrayerTimer();
+          }
+        }}
+        onOpenFasting={(ref) => {
+          if (onOpenFastingWithPassage) {
+            onOpenFastingWithPassage(ref);
+          } else {
+            onNavigateToTab('fasting');
+          }
+        }}
+        onOpenReflection={(ref, text, theme) => {
+          if (onOpenReflectionWithPassage) {
+            onOpenReflectionWithPassage(ref, theme);
+          } else {
+            setReflectionText(`Meditação em ${ref}: "${text.slice(0, 100)}..."`);
+          }
+        }}
+        onOpenHistory={() => setIsWordHistoryOpen(true)}
+        onRecalculate={onRecalculateWordOfDay}
+      />
 
       {/* 2. PRÓXIMA ATIVIDADE (MOTOR DE PRIORIDADE + "PRÓXIMA AÇÃO") */}
       <section 
@@ -877,6 +943,29 @@ export const TodayView: React.FC<TodayViewProps> = ({
           </div>
         </form>
       </section>
+
+      {/* Modal de Histórico de Palavras do Dia */}
+      <WordOfDayHistoryModal
+        isOpen={isWordHistoryOpen}
+        onClose={() => setIsWordHistoryOpen(false)}
+        history={localWordHistory}
+        onToggleFavorite={handleToggleHistoryFavorite}
+        onSaveReflection={handleSaveHistoryReflection}
+        onOpenBible={(bookId, chapter) => {
+          if (onOpenBibleAt) {
+            onOpenBibleAt(bookId, chapter);
+          } else {
+            onNavigateToTab('bible');
+          }
+        }}
+        onOpenPrayer={(ref, text) => {
+          if (onOpenPrayerWithVerse) {
+            onOpenPrayerWithVerse(`Oração sobre ${ref}`, text);
+          } else {
+            onOpenPrayerTimer();
+          }
+        }}
+      />
 
     </div>
   );

@@ -2,6 +2,7 @@ import {
   SpiritualProfile, 
   DailyTask, 
   PrayerRequest, 
+  PrayerPlan,
   FastingPlan, 
   ReadingPlan, 
   Reflection, 
@@ -487,8 +488,13 @@ export const INITIAL_PRAYER_REQUESTS: PrayerRequest[] = [
   {
     id: 'prayer-1',
     title: 'Sabedoria e discernimento nas decisões profissionais',
+    person: 'Própria vida e carreira',
     category: 'calling',
+    priority: 'alta',
+    date: '2026-09-01',
+    status: 'em_oracao',
     description: 'Orando para que cada passo na carreira reflita integridade e honre a Deus, com clareza de prioridades.',
+    notes: 'Apresentando em oração matinal e jejuando por clareza espiritual.',
     scriptureReferences: ['Tiago 1:5', 'Provérbios 3:5-6'],
     createdAt: '2026-09-01T08:00:00',
     answered: false,
@@ -499,8 +505,13 @@ export const INITIAL_PRAYER_REQUESTS: PrayerRequest[] = [
   {
     id: 'prayer-2',
     title: 'Saúde e união de toda a família',
+    person: 'Pais e irmãos',
     category: 'family',
+    priority: 'alta',
+    date: '2026-08-20',
+    status: 'ativo',
     description: 'Pela paz no lar, proteção sobre a saúde dos meus pais e fortalecimento espiritual de todos.',
+    notes: 'Manter intercessão contínua durante os cultos domésticos.',
     scriptureReferences: ['Josué 24:15', 'Salmos 128:1-3'],
     createdAt: '2026-08-20T10:00:00',
     answered: false,
@@ -510,8 +521,14 @@ export const INITIAL_PRAYER_REQUESTS: PrayerRequest[] = [
   {
     id: 'prayer-3',
     title: 'Cura e reabilitação da tia Marta',
+    person: 'Tia Marta',
     category: 'health',
+    priority: 'alta',
+    date: '2026-07-15',
+    status: 'agradecimento',
     description: 'Ela passou pela cirurgia delicada e os médicos trouxeram o laudo positivo!',
+    answer: 'A cirurgia foi um sucesso completo e ela já está caminhando sem dores. Deus cuidou de cada detalhe da equipe médica.',
+    notes: 'Motivo de louvor e gratidão na igreja no domingo passado.',
     scriptureReferences: ['Salmos 103:2-3'],
     createdAt: '2026-07-15T14:00:00',
     answered: true,
@@ -522,8 +539,13 @@ export const INITIAL_PRAYER_REQUESTS: PrayerRequest[] = [
   {
     id: 'prayer-4',
     title: 'Coração manso e libertação de ansiedade',
+    person: 'Vida pessoal',
     category: 'spiritual',
+    priority: 'media',
+    date: '2026-09-05',
+    status: 'em_oracao',
     description: 'Substituir a pressa mental pela confiança na provisão e no tempo oportuno do Senhor.',
+    notes: 'Meditar em Filipenses 4 e praticar oração de respiração ao meio-dia.',
     scriptureReferences: ['Filipenses 4:6-7', 'Mateus 6:33-34'],
     createdAt: '2026-09-05T09:00:00',
     answered: false,
@@ -532,24 +554,90 @@ export const INITIAL_PRAYER_REQUESTS: PrayerRequest[] = [
   }
 ];
 
+export const INITIAL_PRAYER_PLANS: PrayerPlan[] = [
+  {
+    id: 'plan-prayer-daily',
+    title: 'Oração Diária — Manhã & Noite',
+    description: 'Dois momentos consagrados para entrega do dia e ação de graças antes de dormir.',
+    type: 'diario',
+    scheduledTimes: ['06:30', '21:30'],
+    recurrenceDays: [0, 1, 2, 3, 4, 5, 6],
+    targetMinutes: 15,
+    associatedPrayerIds: ['prayer-1', 'prayer-2', 'prayer-4'],
+    isActive: true,
+    createdAt: '2026-09-01T08:00:00Z'
+  },
+  {
+    id: 'plan-prayer-weekly',
+    title: 'Intercessão da Família & Amigos',
+    description: 'Clamor focado pelas famílias e pedidos de cura toda terça e sexta-feira.',
+    type: 'semanal',
+    scheduledTimes: ['12:30'],
+    recurrenceDays: [2, 5], // Terça e Sexta
+    targetMinutes: 20,
+    associatedPrayerIds: ['prayer-2', 'prayer-3'],
+    isActive: true,
+    createdAt: '2026-09-05T09:00:00Z'
+  }
+];
+
 export const INITIAL_FASTING_PLAN: FastingPlan = {
   id: 'fast-current',
   title: 'Jejum de Clareza e Humildade',
   type: 'water_only',
-  purpose: 'Consagrar um período para discernir os próximos passos de vida e manter a sensibilidade espiritual aguçada.',
-  scriptureVerse: 'Mateus 6:17-18 — "Tu, porém, quando jejuares, unge a cabeça e lava o rosto..."',
+  date: '2026-09-20',
   startTime: '2026-09-20T07:00:00',
+  endTime: '2026-09-20T19:00:00',
   targetHours: 12,
+  purpose: 'Consagrar um período para discernir os próximos passos de vida e manter a sensibilidade espiritual aguçada.',
+  relatedPrayerId: 'prayer-1',
+  relatedPrayerTitle: 'Sabedoria e discernimento nas decisões profissionais',
+  relatedPassage: 'Tiago 1:5',
+  notes: 'Dedicar o horário do almoço para oração e leitura do livro de Provérbios.',
+  status: 'em_andamento',
+  scriptureVerse: 'Mateus 6:17-18 — "Tu, porém, quando jejuares, unge a cabeça e lava o rosto..."',
   active: true,
   completed: false,
-  reflectionsDuringFast: 'Momento de oração ao meio-dia trouxe paz renovada.'
+  reflectionsDuringFast: 'Momento de oração ao meio-dia trouxe paz renovada e foco no essencial.',
+  createdAt: '2026-09-20T07:00:00Z'
 };
+
+export const INITIAL_FASTING_RECORDS: FastingPlan[] = [
+  INITIAL_FASTING_PLAN,
+  {
+    id: 'fast-past-1',
+    title: 'Jejum de Gratidão e Quebra de Ansiedade',
+    type: 'partial',
+    date: '2026-09-13',
+    startTime: '2026-09-13T06:00:00',
+    endTime: '2026-09-13T14:00:00',
+    targetHours: 8,
+    purpose: 'Entrega das preocupações com trabalho e descanso na soberania de Deus.',
+    relatedPrayerId: 'prayer-4',
+    relatedPrayerTitle: 'Coração manso e libertação de ansiedade',
+    relatedPassage: 'Filipenses 4:6-7',
+    notes: 'Pulei o café da manhã e o almoço, consumindo água e chá.',
+    status: 'concluido',
+    active: false,
+    completed: true,
+    completedAt: '2026-09-13T14:10:00Z',
+    reflectionsDuringFast: 'Deus ministrou grande calma ao meu coração durante a oração do meio-dia.',
+    createdAt: '2026-09-13T06:00:00Z'
+  }
+];
 
 export const INITIAL_REFLECTIONS: Reflection[] = [
   {
     id: 'refl-1',
     date: '2026-09-19',
     scriptureRef: 'Romanos 7:24-25',
+    whatLearned: 'Minha força humana não é suficiente para vencer minhas falhas. A vitória vem unicamente por meio de Jesus Cristo nosso Senhor.',
+    whatCaughtAttention: 'A expressão "Graças a Deus por Jesus Cristo, nosso Senhor!" no ápice da fraqueza.',
+    howToApply: 'Em vez de me culpar quando falho, vou correr para a graça imediatamente e pedir auxílio ao Espírito Santo.',
+    personalPrayer: 'Senhor Jesus, ajuda-me a não confiar nas minhas próprias forças, mas em Tua justiça que me liberta.',
+    notes: 'Leitura feita durante a manhã, trouxe grande alívio de peso interior.',
+    relatedActivityType: 'bible',
+    relatedTitle: 'Leitura de Romanos 7',
     whatGodSpoke: 'Minha força humana não é suficiente para vencer minhas falhas. A vitória vem unicamente por meio de Jesus Cristo nosso Senhor.',
     practicalApplication: 'Em vez de me culpar quando falho, vou correr para a graça imediatamente e pedir auxílio ao Espírito Santo.',
     gratitudeNotes: [

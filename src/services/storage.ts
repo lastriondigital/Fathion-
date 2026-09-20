@@ -3,12 +3,17 @@ import {
   DailyTask, 
   ActivityStatus,
   PrayerRequest, 
+  PrayerStatus,
+  PrayerPlan,
+  PrayerPlanType,
   FastingPlan, 
+  FastingStatus,
   ReadingPlan, 
   PlanDay,
   PlanStatus,
   PlanFrequency,
   Reflection, 
+  JourneyEntry,
   DailyConsistency,
   SpiritualGoal,
   SpiritualObjective,
@@ -24,8 +29,11 @@ import {
   BibleReadingSession,
   BibleLastRead,
   BibleFontSize,
-  BibleFontFamily
+  BibleFontFamily,
+  WordOfTheDay,
+  WordOfTheDayHistoryItem
 } from '../types';
+import { WordOfTheDayService, PersonalizationContext } from './wordOfTheDayService';
 import { 
   refreshPlanDaysStatus, 
   continueFromWhereYouLeftOff, 
@@ -37,7 +45,9 @@ import {
   INITIAL_SPIRITUAL_PROFILE, 
   INITIAL_DAILY_TASKS, 
   INITIAL_PRAYER_REQUESTS, 
+  INITIAL_PRAYER_PLANS,
   INITIAL_FASTING_PLAN, 
+  INITIAL_FASTING_RECORDS,
   INITIAL_READING_PLANS, 
   INITIAL_REFLECTIONS, 
   INITIAL_CONSISTENCY_HISTORY,
@@ -52,7 +62,9 @@ const STORAGE_KEYS = {
   PROFILE: 'faithion_profile_v1',
   TASKS: 'faithion_tasks_v1',
   PRAYERS: 'faithion_prayers_v1',
+  PRAYER_PLANS: 'faithion_prayer_plans_v1',
   FASTING: 'faithion_fasting_v1',
+  FASTING_RECORDS: 'faithion_fasting_records_v1',
   PLANS: 'faithion_plans_v1',
   REFLECTIONS: 'faithion_reflections_v1',
   CONSISTENCY: 'faithion_consistency_v1',
@@ -836,37 +848,113 @@ export class FaithionStorageService {
 
   // --- Prayer Requests & Intercession ---
   static getPrayerRequests(): PrayerRequest[] {
-    return safeGet<PrayerRequest[]>(STORAGE_KEYS.PRAYERS, INITIAL_PRAYER_REQUESTS);
+    const raw = safeGet<PrayerRequest[]>(STORAGE_KEYS.PRAYERS, INITIAL_PRAYER_REQUESTS);
+    // Normalização defensiva para assegurar todos os novos campos requeridos
+    return raw.map(p => {
+      let derivedStatus: PrayerStatus = p.status;
+      if (!derivedStatus) {
+        derivedStatus = p.answered ? 'respondido' : 'ativo';
+      }
+      const derivedDate = p.date || (p.createdAt ? p.createdAt.split('T')[0] : new Date().toISOString().split('T')[0]);
+      return {
+        ...p,
+        status: derivedStatus,
+        priority: p.priority || 'media',
+        person: p.person || '',
+        date: derivedDate,
+        answer: p.answer || p.answeredTestimony || '',
+        notes: p.notes || '',
+        answered: derivedStatus === 'respondido' || derivedStatus === 'agradecimento' || !!p.answered
+      };
+    });
   }
 
   static savePrayerRequests(requests: PrayerRequest[]): void {
     safeSet(STORAGE_KEYS.PRAYERS, requests);
   }
 
-  static addPrayerRequest(request: Omit<PrayerRequest, 'id' | 'createdAt' | 'answered' | 'timesPrayed'>): PrayerRequest {
+  static addPrayerRequest(request: Omit<PrayerRequest, 'id' | 'createdAt' | 'answered' | 'timesPrayed'> & { answered?: boolean }): PrayerRequest {
     const requests = this.getPrayerRequests();
+    const isAnswered = request.status === 'respondido' || request.status === 'agradecimento';
     const newRequest: PrayerRequest = {
       ...request,
       id: `prayer-${Date.now()}`,
       createdAt: new Date().toISOString(),
-      answered: false,
-      timesPrayed: 1,
+      date: request.date || new Date().toISOString().split('T')[0],
+      priority: request.priority || 'media',
+      status: request.status || 'ativo',
+      person: request.person?.trim() || undefined,
+      answer: request.answer?.trim() || undefined,
+      notes: request.notes?.trim() || undefined,
+      answered: isAnswered,
+      timesPrayed: (request as any).timesPrayed || 1,
       lastPrayedAt: new Date().toISOString()
     };
     this.savePrayerRequests([newRequest, ...requests]);
     return newRequest;
   }
 
+  static updatePrayerRequest(id: string, updates: Partial<PrayerRequest>): PrayerRequest[] {
+    const requests = this.getPrayerRequests();
+    const updated = requests.map(p => {
+      if (p.id === id) {
+        const nextStatus = updates.status || p.status;
+        const isAnswered = nextStatus === 'respondido' || nextStatus === 'agradecimento';
+        return {
+          ...p,
+          ...updates,
+          status: nextStatus,
+          answered: isAnswered,
+          answeredAt: isAnswered ? (p.answeredAt || new Date().toISOString()) : undefined,
+          answer: updates.answer !== undefined ? updates.answer : p.answer
+        };
+      }
+      return p;
+    });
+    this.savePrayerRequests(updated);
+    return updated;
+  }
+
+  static deletePrayerRequest(id: string): PrayerRequest[] {
+    const requests = this.getPrayerRequests();
+    const updated = requests.filter(p => p.id !== id);
+    this.savePrayerRequests(updated);
+    return updated;
+  }
+
   static togglePrayerAnswered(id: string, testimony?: string): PrayerRequest[] {
     const requests = this.getPrayerRequests();
     const updated = requests.map(p => {
       if (p.id === id) {
-        const isAnswered = !p.answered;
+        const isCurrentlyAnswered = p.status === 'respondido' || p.status === 'agradecimento' || p.answered;
+        const nextStatus: PrayerStatus = isCurrentlyAnswered ? 'ativo' : 'respondido';
         return {
           ...p,
+          status: nextStatus,
+          answered: !isCurrentlyAnswered,
+          answeredAt: !isCurrentlyAnswered ? new Date().toISOString() : undefined,
+          answeredTestimony: testimony || p.answeredTestimony,
+          answer: testimony || p.answer || p.answeredTestimony
+        };
+      }
+      return p;
+    });
+    this.savePrayerRequests(updated);
+    return updated;
+  }
+
+  static setPrayerStatus(id: string, status: PrayerStatus, answer?: string, notes?: string): PrayerRequest[] {
+    const requests = this.getPrayerRequests();
+    const updated = requests.map(p => {
+      if (p.id === id) {
+        const isAnswered = status === 'respondido' || status === 'agradecimento';
+        return {
+          ...p,
+          status,
           answered: isAnswered,
-          answeredAt: isAnswered ? new Date().toISOString() : undefined,
-          answeredTestimony: testimony || p.answeredTestimony
+          answeredAt: isAnswered ? (p.answeredAt || new Date().toISOString()) : p.answeredAt,
+          answer: answer !== undefined ? answer : p.answer,
+          notes: notes !== undefined ? notes : p.notes
         };
       }
       return p;
@@ -900,42 +988,265 @@ export class FaithionStorageService {
     }
   }
 
-  // --- Fasting ---
+  // --- Prayer Plans (Planos de Oração) ---
+  static getPrayerPlans(): PrayerPlan[] {
+    return safeGet<PrayerPlan[]>(STORAGE_KEYS.PRAYER_PLANS, INITIAL_PRAYER_PLANS);
+  }
+
+  static savePrayerPlans(plans: PrayerPlan[]): void {
+    safeSet(STORAGE_KEYS.PRAYER_PLANS, plans);
+  }
+
+  static addPrayerPlan(plan: Omit<PrayerPlan, 'id' | 'createdAt'>): PrayerPlan {
+    const plans = this.getPrayerPlans();
+    const newPlan: PrayerPlan = {
+      ...plan,
+      id: `plan-prayer-${Date.now()}`,
+      createdAt: new Date().toISOString()
+    };
+    this.savePrayerPlans([newPlan, ...plans]);
+    return newPlan;
+  }
+
+  static updatePrayerPlan(id: string, updates: Partial<PrayerPlan>): PrayerPlan[] {
+    const plans = this.getPrayerPlans();
+    const updated = plans.map(p => p.id === id ? { ...p, ...updates } : p);
+    this.savePrayerPlans(updated);
+    return updated;
+  }
+
+  static deletePrayerPlan(id: string): PrayerPlan[] {
+    const plans = this.getPrayerPlans();
+    const updated = plans.filter(p => p.id !== id);
+    this.savePrayerPlans(updated);
+    return updated;
+  }
+
+  // --- Fasting Records & Management ---
+  static getFastingRecords(): FastingPlan[] {
+    const records = safeGet<FastingPlan[]>(STORAGE_KEYS.FASTING_RECORDS, INITIAL_FASTING_RECORDS);
+    return records.map(f => {
+      let derivedStatus: FastingStatus = f.status;
+      if (!derivedStatus) {
+        if (f.active) derivedStatus = 'em_andamento';
+        else if (f.completed) derivedStatus = 'concluido';
+        else derivedStatus = 'planejado';
+      }
+      return {
+        ...f,
+        status: derivedStatus,
+        date: f.date || (f.startTime ? f.startTime.split('T')[0] : new Date().toISOString().split('T')[0]),
+        startTime: f.startTime || '06:00',
+        endTime: f.endTime || '18:00',
+        active: derivedStatus === 'em_andamento',
+        completed: derivedStatus === 'concluido'
+      };
+    });
+  }
+
+  static saveFastingRecords(records: FastingPlan[]): void {
+    safeSet(STORAGE_KEYS.FASTING_RECORDS, records);
+    // Também sincroniza com FASTING key do registro ativo
+    const active = records.find(r => r.status === 'em_andamento') || records[0];
+    if (active) {
+      this.saveFastingPlan(active);
+    }
+  }
+
   static getFastingPlan(): FastingPlan {
-    return safeGet<FastingPlan>(STORAGE_KEYS.FASTING, INITIAL_FASTING_PLAN);
+    const records = this.getFastingRecords();
+    const active = records.find(r => r.status === 'em_andamento');
+    if (active) return active;
+    const fallback = safeGet<FastingPlan>(STORAGE_KEYS.FASTING, INITIAL_FASTING_PLAN);
+    return fallback;
   }
 
   static saveFastingPlan(plan: FastingPlan): void {
     safeSet(STORAGE_KEYS.FASTING, plan);
   }
 
-  static startFasting(purpose: string, targetHours: number, type: FastingPlan['type']): FastingPlan {
-    const newPlan: FastingPlan = {
+  static createFastingRecord(data: {
+    type: FastingPlan['type'];
+    date: string;
+    startTime: string;
+    endTime: string;
+    targetHours?: number;
+    purpose: string;
+    relatedPrayerId?: string;
+    relatedPrayerTitle?: string;
+    relatedPassage?: string;
+    notes?: string;
+    startNow?: boolean;
+  }): FastingPlan {
+    const records = this.getFastingRecords();
+    const nowIso = new Date().toISOString();
+    const startNow = !!data.startNow;
+    const computedHours = data.targetHours && data.targetHours > 0 ? data.targetHours : 12;
+
+    const newRecord: FastingPlan = {
       id: `fast-${Date.now()}`,
-      title: 'Jejum Consagrado',
-      type,
-      purpose,
-      scriptureVerse: 'Esdras 8:21 — "Então proclamei ali um jejum junto ao rio Aava, para nos humilharmos diante do nosso Deus..."',
-      startTime: new Date().toISOString(),
-      targetHours,
-      active: true,
+      title: data.purpose.length > 30 ? `${data.purpose.slice(0, 30)}...` : data.purpose,
+      type: data.type,
+      date: data.date,
+      startTime: startNow ? nowIso : (data.startTime.includes('T') ? data.startTime : `${data.date}T${data.startTime}:00`),
+      endTime: data.endTime.includes('T') ? data.endTime : `${data.date}T${data.endTime}:00`,
+      targetHours: computedHours,
+      purpose: data.purpose,
+      relatedPrayerId: data.relatedPrayerId,
+      relatedPrayerTitle: data.relatedPrayerTitle,
+      relatedPassage: data.relatedPassage,
+      notes: data.notes,
+      status: startNow ? 'em_andamento' : 'planejado',
+      active: startNow,
       completed: false,
+      scriptureVerse: data.relatedPassage || 'Mateus 6:17-18',
+      createdAt: nowIso
     };
-    this.saveFastingPlan(newPlan);
-    return newPlan;
+
+    // Se estiver iniciando agora, desativa qualquer outro que estava em andamento
+    const updatedRecords = startNow 
+      ? records.map(r => r.status === 'em_andamento' ? { ...r, status: 'interrompido' as FastingStatus, active: false } : r)
+      : records;
+
+    const finalRecords = [newRecord, ...updatedRecords];
+    this.saveFastingRecords(finalRecords);
+    return newRecord;
+  }
+
+  static addFastingRecord(data: any): FastingPlan {
+    return this.createFastingRecord(data);
+  }
+
+  static startFasting(purpose: string, targetHours: number, type: FastingPlan['type']): FastingPlan {
+    const today = new Date().toISOString().split('T')[0];
+    return this.createFastingRecord({
+      type,
+      date: today,
+      startTime: '06:00',
+      endTime: '18:00',
+      targetHours,
+      purpose,
+      startNow: true
+    });
+  }
+
+  static startFastingRecord(id: string): FastingPlan {
+    const records = this.getFastingRecords();
+    const nowIso = new Date().toISOString();
+    let startedRecord: FastingPlan | null = null;
+
+    const updated = records.map(r => {
+      if (r.id === id) {
+        startedRecord = {
+          ...r,
+          status: 'em_andamento' as FastingStatus,
+          startTime: nowIso,
+          active: true,
+          completed: false
+        };
+        return startedRecord;
+      }
+      // Se havia outro em andamento, interrompe para dar lugar ao novo
+      if (r.status === 'em_andamento') {
+        return { ...r, status: 'interrompido' as FastingStatus, active: false };
+      }
+      return r;
+    });
+
+    this.saveFastingRecords(updated);
+    return startedRecord || this.getFastingPlan();
+  }
+
+  static completeFastingRecord(id: string, reflections?: string): FastingPlan {
+    const records = this.getFastingRecords();
+    const nowIso = new Date().toISOString();
+    let completedItem: FastingPlan | null = null;
+
+    const updated = records.map(r => {
+      if (r.id === id) {
+        completedItem = {
+          ...r,
+          status: 'concluido' as FastingStatus,
+          active: false,
+          completed: true,
+          completedAt: nowIso,
+          reflectionsDuringFast: reflections || r.reflectionsDuringFast
+        };
+        return completedItem;
+      }
+      return r;
+    });
+
+    this.saveFastingRecords(updated);
+
+    // Marca no histórico diário que houve jejum concluído
+    const history = this.getConsistencyHistory();
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayRecord = history.find(h => h.date === todayStr);
+    if (todayRecord) {
+      todayRecord.fastingLogged = true;
+      this.saveConsistencyHistory([...history]);
+    }
+
+    return completedItem || this.getFastingPlan();
+  }
+
+  static interruptFastingRecord(id: string, reason?: string): FastingPlan {
+    const records = this.getFastingRecords();
+    const nowIso = new Date().toISOString();
+    let interruptedItem: FastingPlan | null = null;
+
+    const updated = records.map(r => {
+      if (r.id === id) {
+        interruptedItem = {
+          ...r,
+          status: 'interrompido' as FastingStatus,
+          active: false,
+          completed: false,
+          interruptedAt: nowIso,
+          interruptionReason: reason || 'Interrompido pelo usuário'
+        };
+        return interruptedItem;
+      }
+      return r;
+    });
+
+    this.saveFastingRecords(updated);
+    return interruptedItem || this.getFastingPlan();
+  }
+
+  static cancelFastingRecord(id: string, reason?: string): FastingPlan {
+    const records = this.getFastingRecords();
+    let canceledItem: FastingPlan | null = null;
+
+    const updated = records.map(r => {
+      if (r.id === id) {
+        canceledItem = {
+          ...r,
+          status: 'cancelado' as FastingStatus,
+          active: false,
+          completed: false,
+          cancellationReason: reason || 'Cancelado antes de iniciar'
+        };
+        return canceledItem;
+      }
+      return r;
+    });
+
+    this.saveFastingRecords(updated);
+    return canceledItem || this.getFastingPlan();
+  }
+
+  static deleteFastingRecord(id: string): FastingPlan[] {
+    const records = this.getFastingRecords();
+    const updated = records.filter(r => r.id !== id);
+    this.saveFastingRecords(updated);
+    return updated;
   }
 
   static stopFasting(reflections?: string): FastingPlan {
     const current = this.getFastingPlan();
-    const updated: FastingPlan = {
-      ...current,
-      active: false,
-      completed: true,
-      completedAt: new Date().toISOString(),
-      reflectionsDuringFast: reflections || current.reflectionsDuringFast
-    };
-    this.saveFastingPlan(updated);
-    return updated;
+    return this.completeFastingRecord(current.id, reflections);
   }
 
   // --- Reflections & Spiritual Journal ---
@@ -952,10 +1263,203 @@ export class FaithionStorageService {
     const newRefl: Reflection = {
       ...refl,
       id: `refl-${Date.now()}`,
-      createdAt: new Date().toISOString()
+      date: refl.date || new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString(),
+      whatLearned: refl.whatLearned?.trim() || undefined,
+      whatCaughtAttention: refl.whatCaughtAttention?.trim() || undefined,
+      howToApply: refl.howToApply?.trim() || undefined,
+      personalPrayer: refl.personalPrayer?.trim() || undefined,
+      notes: refl.notes?.trim() || undefined,
+      // Retrocompatibilidade se foram preenchidos
+      whatGodSpoke: refl.whatGodSpoke || refl.whatLearned || refl.notes || '',
+      practicalApplication: refl.practicalApplication || refl.howToApply || '',
+      gratitudeNotes: refl.gratitudeNotes || []
     };
     this.saveReflections([newRefl, ...reflections]);
     return newRefl;
+  }
+
+  static deleteReflection(id: string): Reflection[] {
+    const reflections = this.getReflections();
+    const updated = reflections.filter(r => r.id !== id);
+    this.saveReflections(updated);
+    return updated;
+  }
+
+  static updateReflection(id: string, updates: Partial<Reflection>): Reflection[] {
+    const reflections = this.getReflections();
+    const updated = reflections.map(r => r.id === id ? { ...r, ...updates } : r);
+    this.saveReflections(updated);
+    return updated;
+  }
+
+  // --- INTEGRAÇÃO: Linha do Tempo Unificada da Jornada Espiritual ---
+  static getUnifiedJourneyHistory(): JourneyEntry[] {
+    const entries: JourneyEntry[] = [];
+
+    // 1. Leituras Bíblicas
+    const readingSessions = this.getBibleReadingHistory();
+    readingSessions.forEach(session => {
+      entries.push({
+        id: `journey-read-${session.id}`,
+        date: session.date,
+        timestamp: session.completedAt || session.startTime || `${session.date}T12:00:00Z`,
+        type: 'bible',
+        title: `Leitura Bíblica: ${session.passageRef}`,
+        subtitle: `Versão ${session.versionAbbr} • ${session.durationMinutes} min de meditação`,
+        content: session.relatedPlanTitle ? `Plano: ${session.relatedPlanTitle} (Dia ${session.relatedPlanDayNumber || 1})` : undefined,
+        passageRef: session.passageRef,
+        statusBadge: {
+          label: 'Leitura Concluída',
+          variant: 'emerald'
+        },
+        details: [
+          { label: 'Passagem', value: session.passageRef },
+          { label: 'Duração', value: `${session.durationMinutes} min` }
+        ]
+      });
+    });
+
+    // 2. Orações (Pedidos, Respostas e Agradecimentos)
+    const prayers = this.getPrayerRequests();
+    prayers.forEach(prayer => {
+      const isAnswered = prayer.status === 'respondido' || prayer.status === 'agradecimento';
+      let badgeLabel = 'Oração Ativa';
+      let badgeVariant: 'neutral' | 'emerald' | 'amber' | 'sky' | 'rose' = 'sky';
+      if (prayer.status === 'em_oracao') {
+        badgeLabel = 'Em Clamor';
+        badgeVariant = 'amber';
+      } else if (prayer.status === 'agradecimento') {
+        badgeLabel = 'Agradecimento';
+        badgeVariant = 'emerald';
+      } else if (prayer.status === 'respondido') {
+        badgeLabel = 'Respondida!';
+        badgeVariant = 'emerald';
+      } else if (prayer.status === 'arquivado') {
+        badgeLabel = 'Arquivado';
+        badgeVariant = 'neutral';
+      }
+
+      entries.push({
+        id: `journey-prayer-${prayer.id}`,
+        date: prayer.date || prayer.createdAt.split('T')[0],
+        timestamp: prayer.createdAt,
+        type: 'prayer',
+        title: prayer.title,
+        subtitle: prayer.person ? `Intercessão por: ${prayer.person}` : `Categoria: ${prayer.category}`,
+        content: isAnswered && prayer.answer ? `Testemunho: "${prayer.answer}"` : prayer.description,
+        statusBadge: {
+          label: badgeLabel,
+          variant: badgeVariant
+        },
+        details: [
+          { label: 'Status', value: badgeLabel },
+          { label: 'Apresentada', value: `${prayer.timesPrayed}x` }
+        ]
+      });
+    });
+
+    // 3. Jejuns (Planejados, Em andamento, Concluídos, Interrompidos)
+    const fasts = this.getFastingRecords();
+    fasts.forEach(fast => {
+      let badgeLabel = 'Jejum Planejado';
+      let badgeVariant: 'neutral' | 'emerald' | 'amber' | 'sky' | 'rose' = 'neutral';
+      if (fast.status === 'em_andamento') {
+        badgeLabel = 'Em Andamento';
+        badgeVariant = 'amber';
+      } else if (fast.status === 'concluido') {
+        badgeLabel = 'Concluído com Vitória';
+        badgeVariant = 'emerald';
+      } else if (fast.status === 'interrompido') {
+        badgeLabel = 'Interrompido';
+        badgeVariant = 'rose';
+      } else if (fast.status === 'cancelado') {
+        badgeLabel = 'Cancelado';
+        badgeVariant = 'neutral';
+      }
+
+      entries.push({
+        id: `journey-fast-${fast.id}`,
+        date: fast.date || fast.startTime.split('T')[0],
+        timestamp: fast.createdAt || fast.startTime,
+        type: 'fasting',
+        title: `Jejum: ${fast.purpose}`,
+        subtitle: `Duração prevista: ${fast.targetHours}h • Tipo: ${fast.type}`,
+        content: fast.reflectionsDuringFast ? `Reflexão do Jejum: "${fast.reflectionsDuringFast}"` : fast.notes,
+        passageRef: fast.relatedPassage,
+        statusBadge: {
+          label: badgeLabel,
+          variant: badgeVariant
+        },
+        details: [
+          { label: 'Horário', value: `${fast.startTime.slice(11, 16) || '06:00'} às ${fast.endTime.slice(11, 16) || '18:00'}` },
+          { label: 'Propósito', value: fast.purpose }
+        ]
+      });
+    });
+
+    // 4. Reflexões Espirituais
+    const reflections = this.getReflections();
+    reflections.forEach(refl => {
+      const summaryParts = [
+        refl.whatLearned ? `Aprendizado: ${refl.whatLearned}` : null,
+        refl.whatCaughtAttention ? `Atenção: ${refl.whatCaughtAttention}` : null,
+        refl.howToApply ? `Aplicação: ${refl.howToApply}` : null,
+        refl.personalPrayer ? `Oração: ${refl.personalPrayer}` : null,
+        refl.notes ? `Notas: ${refl.notes}` : null
+      ].filter(Boolean);
+
+      entries.push({
+        id: `journey-refl-${refl.id}`,
+        date: refl.date,
+        timestamp: refl.createdAt,
+        type: 'reflection',
+        title: refl.scriptureRef ? `Reflexão em ${refl.scriptureRef}` : (refl.relatedTitle || 'Diário Espiritual & Reflexão'),
+        subtitle: refl.scriptureRef ? `Passagem bíblica: ${refl.scriptureRef}` : 'Meditação e Comunhão',
+        content: summaryParts.length > 0 ? summaryParts.join(' • ') : (refl.whatGodSpoke || 'Reflexão registrada.'),
+        passageRef: refl.scriptureRef,
+        scriptureRef: refl.scriptureRef,
+        description: refl.notes || refl.whatGodSpoke,
+        relatedTitle: refl.relatedTitle,
+        reflection: refl,
+        statusBadge: {
+          label: 'Reflexão Registrada',
+          variant: 'amber'
+        },
+        details: [
+          { label: 'Data', value: refl.date },
+          { label: 'Registros', value: `${summaryParts.length} tópicos` }
+        ]
+      });
+    });
+
+    // Ordena do mais recente ao mais antigo
+    return entries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }
+
+  // --- Palavra do Dia Personalizada & Histórico ---
+  static getWordOfTheDay(context?: PersonalizationContext): WordOfTheDay {
+    return WordOfTheDayService.getWordOfTheDay(context);
+  }
+
+  static getWordOfTheDayHistory(): WordOfTheDayHistoryItem[] {
+    return WordOfTheDayService.getHistory();
+  }
+
+  static toggleWordOfTheDayFavorite(wordId: string): WordOfTheDayHistoryItem[] {
+    return WordOfTheDayService.toggleFavorite(wordId);
+  }
+
+  static recordWordOfTheDayInteraction(wordId: string, type: 'read' | 'prayed' | 'fasted' | 'shared'): void {
+    WordOfTheDayService.recordInteraction(wordId, type);
+  }
+
+  static saveWordOfTheDayUserReflection(wordId: string, text: string, reflectionId?: string): void {
+    WordOfTheDayService.saveUserReflection(wordId, text, reflectionId);
+  }
+
+  static setCustomWordOfTheDay(word: WordOfTheDay): void {
+    WordOfTheDayService.setCustomWordOfTheDay(word);
   }
 
   // --- Consistency & Progress (Princípio: MONITORAR & ADAPTAR) ---

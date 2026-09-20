@@ -50,6 +50,7 @@ import { BibleCompleteReadingModal } from '../components/bible/BibleCompleteRead
 
 interface BibleViewProps {
   onOpenPrayerWithVerse?: (verseText: string, ref: string) => void;
+  onOpenFastingWithPassage?: (passageRef: string) => void;
   onSaveReflection?: (reflection: Omit<Reflection, 'id' | 'createdAt'>) => void;
   onNavigateToTab?: (tab: NavTabId) => void;
   activeReadingPlan?: ReadingPlan | null;
@@ -61,6 +62,7 @@ interface BibleViewProps {
 
 export const BibleView: React.FC<BibleViewProps> = ({ 
   onOpenPrayerWithVerse,
+  onOpenFastingWithPassage,
   onSaveReflection,
   onNavigateToTab,
   activeReadingPlan,
@@ -826,6 +828,11 @@ export const BibleView: React.FC<BibleViewProps> = ({
         onOpenPrayer={(ref) => {
           if (onOpenPrayerWithVerse) {
             onOpenPrayerWithVerse(`Consagração da leitura bíblica em ${ref}`, ref);
+          }
+        }}
+        onOpenFasting={(ref) => {
+          if (onOpenFastingWithPassage) {
+            onOpenFastingWithPassage(ref);
           }
         }}
         onSetWordOfDay={(ref) => {
