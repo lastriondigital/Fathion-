@@ -182,6 +182,7 @@ export interface JourneyGuideRecommendationItem {
   scheduledTime?: string;
   status: ActivityStatus;
   why: string;
+  contextNote?: string;
   score: number;
   source: 'plan' | 'routine' | 'task' | 'prayer' | 'fasting' | 'objective';
   transparentFactors: {
@@ -410,7 +411,45 @@ export interface Reflection {
   moodRating?: 1 | 2 | 3 | 4 | 5;
 }
 
-export type JourneyItemType = 'bible' | 'prayer' | 'fasting' | 'reflection';
+export type PracticeCategory = 
+  | 'bible' 
+  | 'prayer' 
+  | 'fasting' 
+  | 'reflection' 
+  | 'study' 
+  | 'plan' 
+  | 'activity' 
+  | 'event' 
+  | 'memorization' 
+  | 'custom';
+
+export type JourneyItemType = PracticeCategory;
+
+export interface TimelineDataStructure {
+  activity: string;
+  passage?: string;
+  prayer?: string;
+  reflection?: string;
+  result: string;
+}
+
+export interface PracticeRecord {
+  id: string;
+  date: string; // YYYY-MM-DD
+  time?: string; // HH:mm
+  type: PracticeCategory;
+  title: string;
+  passageRef?: string;
+  prayerFocus?: string;
+  reflectionNotes?: string;
+  resultSummary?: string;
+  durationMinutes?: number;
+  chaptersCount?: number;
+  status: 'concluido' | 'parcial' | 'ignorado' | 'atrasado' | 'planejado';
+  locationOrLeader?: string; // Para cultos/eventos: igreja, pregador
+  notes?: string;
+  createdAt: string;
+}
 
 export interface JourneyEntry {
   id: string;
@@ -420,12 +459,18 @@ export interface JourneyEntry {
   title: string;
   subtitle?: string;
   content?: string;
-  statusBadge?: {
-    label: string;
-    variant: 'neutral' | 'emerald' | 'amber' | 'sky' | 'rose';
-  };
   passageRef?: string;
   scriptureRef?: string;
+  prayerText?: string;
+  reflectionText?: string;
+  resultNotes?: string;
+  durationMinutes?: number;
+  chaptersCount?: number;
+  status?: 'concluido' | 'parcial' | 'ignorado' | 'atrasado' | 'planejado';
+  statusBadge?: {
+    label: string;
+    variant: 'neutral' | 'emerald' | 'amber' | 'sky' | 'rose' | 'purple';
+  };
   description?: string;
   relatedTitle?: string;
   reflection?: Reflection;
@@ -433,6 +478,8 @@ export interface JourneyEntry {
     label: string;
     value: string;
   }[];
+  // Estrutura expressa da Timeline: Data → atividade → passagem → oração → reflexão → resultado
+  timelineData?: TimelineDataStructure;
 }
 
 export interface DailyConsistency {
@@ -442,7 +489,153 @@ export interface DailyConsistency {
   prayerMinutes: number;
   bibleRead: boolean;
   fastingLogged: boolean;
-  score: number; // 0 a 100
+  score: number; // Para compatibilidade retroativa (não exibido como nota espiritual)
+  plannedTasksCount?: number;
+  completedTasksCount?: number;
+  ignoredTasksCount?: number;
+  delayedTasksCount?: number;
+  prayerSessionsCount?: number;
+  chaptersReadCount?: number;
+  readingSessionsCount?: number;
+  plansCompletedCount?: number;
+  fastsCompletedCount?: number;
+}
+
+export interface ObjectiveConsistencyMetrics {
+  period: 'today' | 'week' | 'month' | 'history';
+  plannedActivities: number;
+  completedActivities: number;
+  ignoredActivities: number;
+  delayedActivities: number;
+  activeDaysCount: number;
+  totalDaysInPeriod: number;
+  prayerSessionsCount: number;
+  totalPrayerMinutes: number;
+  readingSessionsCount: number;
+  chaptersReadCount: number;
+  plansCompletedCount: number;
+  fastsCompletedCount: number;
+  studiesCount: number;
+  eventsCount: number;
+  memorizationsCount: number;
+}
+
+export type StatsPeriod = '7d' | '30d' | '90d' | 'custom';
+
+export interface StatsFilterOptions {
+  period: StatsPeriod;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface DetailedRoutineStats {
+  // Métricas Principais
+  activeDays: number;
+  totalDaysInPeriod: number;
+  completedActivities: number;
+  plannedActivities: number;
+  executionRate: number; // 0 a 100%
+  
+  // Leituras
+  readingSessionsCount: number;
+  chaptersCount: number;
+  readingTimeMinutes: number;
+  
+  // Oração
+  prayerSessionsCount: number;
+  prayerTimeMinutes: number;
+  
+  // Jejuns e Reflexões
+  fastingsCount: number;
+  reflectionsCount: number;
+  
+  // Planos
+  activePlansCount: number;
+  completedPlansCount: number;
+
+  // Gráficos e Visualizações
+  dailyTimeline: {
+    date: string;
+    dayLabel: string;
+    completedCount: number;
+    plannedCount: number;
+    prayerMinutes: number;
+    readingMinutes: number;
+    hadReading: boolean;
+    hadPrayer: boolean;
+    hadFasting: boolean;
+    hadReflection: boolean;
+  }[];
+  
+  weekdayDistribution: {
+    dayName: string;
+    shortDay: string;
+    completedCount: number;
+    plannedCount: number;
+    successRate: number;
+  }[];
+
+  practiceDistribution: {
+    category: string;
+    label: string;
+    count: number;
+    percentage: number;
+    color: string;
+  }[];
+
+  // Análises Objetivas
+  bestTimeOfDay: {
+    periodName: string;
+    timeRange: string;
+    completedCount: number;
+    percentageOfTotal: number;
+    description: string;
+  };
+
+  mostConsistentActivities: {
+    name: string;
+    category: string;
+    completedCount: number;
+    rate: number;
+    averageMinutes: number;
+  }[];
+
+  frequentlyIgnoredActivities: {
+    name: string;
+    category: string;
+    skippedCount: number;
+    skipRate: number;
+    commonReason?: string;
+    constructiveNote: string;
+  }[];
+
+  plansEvolution: {
+    id: string;
+    title: string;
+    type: 'reading' | 'prayer';
+    currentDay: number;
+    totalDays: number;
+    progressPercentage: number;
+    status: string;
+    isCompleted: boolean;
+  }[];
+
+  activityHeatmap: {
+    date: string;
+    dayOfWeek: number;
+    activityLevel: 0 | 1 | 2 | 3 | 4;
+    count: number;
+    dateFormatted: string;
+  }[];
+}
+
+export interface BehavioralPatternObservation {
+  id: string;
+  type: 'routine_frequency' | 'time_preference' | 'plan_delay' | 'consistency_streak' | 'general_habit';
+  text: string; // Ex: "Você completou sua rotina em 5 dos últimos 7 dias."
+  contextDetail?: string; // Fato objetivo sem julgamento
+  metricBadge?: string;
+  category?: PracticeCategory;
 }
 
 export interface VerseOfDay {
@@ -565,6 +758,7 @@ export interface BibleReadingSession {
   startTime: string;
   completedAt: string;
   durationMinutes: number;
+  notes?: string;
   relatedPlanId?: string;
   relatedPlanTitle?: string;
   relatedPlanDayNumber?: number;
@@ -602,10 +796,116 @@ export interface BibleBook {
   chapters: Record<number, BibleVerse[]>;
 }
 
+export type SyncStatus = 'sincronizado' | 'sincronizando' | 'offline' | 'erro';
+
 export interface SupabaseSyncMetadata {
   lastSyncedAt: string | null;
-  syncStatus: 'synced' | 'local_only' | 'syncing' | 'error';
+  syncStatus: SyncStatus;
   pendingMutationsCount: number;
+  lastErrorMessage?: string;
+  isOnline: boolean;
+  isSupabaseConfigured: boolean;
+  userEmail?: string;
+}
+
+export interface SyncMutation {
+  id: string;
+  table: string;
+  operation: 'INSERT' | 'UPDATE' | 'DELETE' | 'UPSERT';
+  recordId: string;
+  payload: any;
+  timestamp: string; // ISO String
+  retryCount: number;
+  lastError?: string;
+}
+
+export interface SupabaseConfig {
+  url: string;
+  anonKey: string;
+  isConfigured: boolean;
+  autoSyncIntervalMinutes: number;
+  tablePrefix?: string;
+}
+
+export interface SupabaseUserSession {
+  user: {
+    id: string;
+    email?: string;
+    name?: string;
+    createdAt?: string;
+  } | null;
+  accessToken: string | null;
+  isAnonymous: boolean;
+  sessionExpiry?: string;
+}
+
+export interface AppSettings {
+  isDarkMode: boolean;
+  offlineModeForced: boolean; // Simulação ou preferência de modo offline
+  soundEffects: boolean;
+  dailyReminderHour: string;
+  syncIntervalMinutes: number;
+  autoBackupDaily: boolean;
+  supabaseConfig: SupabaseConfig;
+  lastBackupAt?: string;
+}
+
+export interface LocalSnapshot {
+  id: string;
+  timestamp: string;
+  label: string;
+  type: 'auto' | 'pre_import' | 'manual';
+  itemsCountSummary: string;
+  payload: any;
+}
+
+export interface FaithionBackupPayload {
+  version: string;
+  schemaVersion: number;
+  exportedAt: string;
+  checksum: string;
+  metadata: {
+    appName: string;
+    appVersion: string;
+    itemsCount: Record<string, number>;
+  };
+  data: {
+    profile: SpiritualProfile;
+    objectives: SpiritualObjective[];
+    goals: SpiritualGoal[];
+    routineActivities: RoutineActivity[];
+    executionLogs: ActivityExecutionLog[];
+    adaptationSuggestions: RoutineAdaptationSuggestion[];
+    tasks: DailyTask[];
+    bibleHighlights: BibleHighlight[];
+    bibleFavorites: BibleFavorite[];
+    bibleNotes: BibleNote[];
+    bibleHistory: BibleReadingSession[];
+    bibleLastRead: BibleLastRead;
+    bibleSettings: any;
+    plans: ReadingPlan[];
+    prayerPlans: PrayerPlan[];
+    prayers: PrayerRequest[];
+    fasting: FastingPlan;
+    fastingRecords: FastingPlan[];
+    reflections: Reflection[];
+    consistency: DailyConsistency[];
+    practiceRecords: PracticeRecord[];
+    wordHistory: WordOfTheDayHistoryItem[];
+    settings?: Partial<AppSettings>;
+    historicalArchive?: any[];
+  };
+}
+
+export interface OfflineTestReport {
+  id: string;
+  timestamp: string;
+  success: boolean;
+  steps: {
+    step: string;
+    status: 'pass' | 'fail' | 'info';
+    detail: string;
+  }[];
 }
 
 export type NavTabId = 'today' | 'routine' | 'bible' | 'plans' | 'prayer' | 'fasting' | 'journey' | 'stats' | 'settings';

@@ -11,7 +11,8 @@ import {
   SpiritualObjective,
   RoutineActivity,
   ActivityExecutionLog,
-  RoutineAdaptationSuggestion
+  RoutineAdaptationSuggestion,
+  PracticeRecord
 } from '../types';
 
 export const INITIAL_SPIRITUAL_PROFILE: SpiritualProfile = {
@@ -650,19 +651,139 @@ export const INITIAL_REFLECTIONS: Reflection[] = [
   }
 ];
 
-export const INITIAL_CONSISTENCY_HISTORY: DailyConsistency[] = [
-  { date: '2026-09-07', tasksCompleted: 5, totalTasks: 5, prayerMinutes: 25, bibleRead: true, fastingLogged: false, score: 100 },
-  { date: '2026-09-08', tasksCompleted: 4, totalTasks: 5, prayerMinutes: 20, bibleRead: true, fastingLogged: false, score: 80 },
-  { date: '2026-09-09', tasksCompleted: 5, totalTasks: 5, prayerMinutes: 30, bibleRead: true, fastingLogged: false, score: 100 },
-  { date: '2026-09-10', tasksCompleted: 4, totalTasks: 5, prayerMinutes: 15, bibleRead: true, fastingLogged: true, score: 90 },
-  { date: '2026-09-11', tasksCompleted: 3, totalTasks: 5, prayerMinutes: 15, bibleRead: false, fastingLogged: false, score: 60 },
-  { date: '2026-09-12', tasksCompleted: 5, totalTasks: 5, prayerMinutes: 25, bibleRead: true, fastingLogged: false, score: 100 },
-  { date: '2026-09-13', tasksCompleted: 5, totalTasks: 5, prayerMinutes: 35, bibleRead: true, fastingLogged: false, score: 100 },
-  { date: '2026-09-14', tasksCompleted: 4, totalTasks: 5, prayerMinutes: 20, bibleRead: true, fastingLogged: false, score: 80 },
-  { date: '2026-09-15', tasksCompleted: 5, totalTasks: 5, prayerMinutes: 25, bibleRead: true, fastingLogged: false, score: 100 },
-  { date: '2026-09-16', tasksCompleted: 4, totalTasks: 5, prayerMinutes: 20, bibleRead: true, fastingLogged: false, score: 80 },
-  { date: '2026-09-17', tasksCompleted: 5, totalTasks: 5, prayerMinutes: 30, bibleRead: true, fastingLogged: true, score: 100 },
-  { date: '2026-09-18', tasksCompleted: 3, totalTasks: 5, prayerMinutes: 15, bibleRead: true, fastingLogged: false, score: 70 },
-  { date: '2026-09-19', tasksCompleted: 4, totalTasks: 5, prayerMinutes: 20, bibleRead: true, fastingLogged: false, score: 85 },
-  { date: '2026-09-20', tasksCompleted: 2, totalTasks: 5, prayerMinutes: 15, bibleRead: true, fastingLogged: true, score: 75 }
+function generateInitialConsistencyHistory(): DailyConsistency[] {
+  const list: DailyConsistency[] = [];
+  const baseDate = new Date('2026-09-20T12:00:00Z');
+  
+  for (let i = 89; i >= 0; i--) {
+    const d = new Date(baseDate);
+    d.setDate(baseDate.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    const dayOfWeek = d.getDay(); // 0 = dom, 6 = sab
+    
+    const isSunday = dayOfWeek === 0;
+    const isWednesday = dayOfWeek === 3;
+    const isFriday = dayOfWeek === 5;
+    
+    let tasksCompleted = 4;
+    let prayerMinutes = 20;
+    let bibleRead = true;
+    let fastingLogged = false;
+    
+    if (isSunday) {
+      tasksCompleted = (i % 3 === 0) ? 5 : 4;
+      prayerMinutes = 30;
+      bibleRead = true;
+    } else if (isWednesday) {
+      tasksCompleted = 5;
+      prayerMinutes = 25;
+      bibleRead = true;
+      fastingLogged = (i % 14 === 0);
+    } else if (isFriday) {
+      tasksCompleted = (i % 2 === 0) ? 4 : 5;
+      prayerMinutes = 20;
+      bibleRead = true;
+      fastingLogged = (i % 7 === 0);
+    } else if (dayOfWeek === 6) {
+      tasksCompleted = (i % 4 === 0) ? 3 : 4;
+      prayerMinutes = 15;
+      bibleRead = (i % 5 !== 0);
+    } else {
+      tasksCompleted = (i % 5 === 0) ? 3 : ((i % 2 === 0) ? 5 : 4);
+      prayerMinutes = 20;
+      bibleRead = true;
+    }
+
+    if (dateStr === '2026-09-20') {
+      tasksCompleted = 2;
+      prayerMinutes = 15;
+      fastingLogged = true;
+    } else if (dateStr === '2026-09-19') {
+      tasksCompleted = 4;
+      prayerMinutes = 20;
+    } else if (dateStr === '2026-09-18') {
+      tasksCompleted = 3;
+      prayerMinutes = 15;
+    } else if (dateStr === '2026-09-17') {
+      tasksCompleted = 5;
+      prayerMinutes = 30;
+      fastingLogged = true;
+    }
+
+    const totalTasks = 5;
+    const score = Math.round((tasksCompleted / totalTasks) * 100);
+
+    list.push({
+      date: dateStr,
+      tasksCompleted,
+      totalTasks,
+      prayerMinutes,
+      bibleRead,
+      fastingLogged,
+      score
+    });
+  }
+  return list;
+}
+
+export const INITIAL_CONSISTENCY_HISTORY: DailyConsistency[] = generateInitialConsistencyHistory();
+
+export const INITIAL_PRACTICE_RECORDS: PracticeRecord[] = [
+  {
+    id: 'prac-event-1',
+    date: '2026-09-17',
+    time: '19:30',
+    type: 'event',
+    title: 'Culto de Oração & Doutrina',
+    locationOrLeader: 'Comunidade da Graça — Pr. Daniel Carvalho',
+    passageRef: 'Filipenses 2:1-11',
+    prayerFocus: 'Clamor coletivo pela unidade da igreja e famílias',
+    reflectionNotes: 'Mensagem sobre a mente de Cristo e esvaziamento do ego.',
+    resultSummary: 'Comunhão preciosa e renovação do compromisso com o próximo.',
+    durationMinutes: 90,
+    status: 'concluido',
+    createdAt: '2026-09-17T21:15:00Z'
+  },
+  {
+    id: 'prac-study-1',
+    date: '2026-09-18',
+    time: '20:00',
+    type: 'study',
+    title: 'Estudo Indutivo das Epístolas Paulinas',
+    passageRef: 'Romanos 8:1-17',
+    reflectionNotes: 'Aprofundamento sobre a diferença entre a mentalidade da carne vs. a mente governada pelo Espírito Santo.',
+    prayerFocus: 'Pedir sensibilidade diária à direção do Espírito.',
+    resultSummary: 'Anotadas 4 aplicações práticas para a tomada de decisões no trabalho.',
+    durationMinutes: 40,
+    chaptersCount: 1,
+    status: 'concluido',
+    createdAt: '2026-09-18T20:45:00Z'
+  },
+  {
+    id: 'prac-memo-1',
+    date: '2026-09-19',
+    time: '08:30',
+    type: 'memorization',
+    title: 'Memorização do Versículo da Semana',
+    passageRef: 'Provérbios 3:5-6',
+    reflectionNotes: '"Confia no Senhor de todo o teu coração e não te estribes no teu próprio entendimento..."',
+    prayerFocus: 'Entrega voluntária do controle diário a Deus.',
+    resultSummary: 'Versículo recitado e guardado no coração com facilidade.',
+    durationMinutes: 10,
+    status: 'concluido',
+    createdAt: '2026-09-19T08:40:00Z'
+  },
+  {
+    id: 'prac-custom-1',
+    date: '2026-09-20',
+    time: '12:45',
+    type: 'custom',
+    title: 'Caminhada de Oração & Silêncio',
+    prayerFocus: 'Paz para tomada de decisões difíceis e discernimento prático',
+    reflectionNotes: 'Desconectei do celular por 20 minutos caminhando na praça.',
+    resultSummary: 'Clareza mental restabelecida e descanso emocional.',
+    durationMinutes: 20,
+    status: 'concluido',
+    createdAt: '2026-09-20T13:10:00Z'
+  }
 ];

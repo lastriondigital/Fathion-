@@ -27,13 +27,15 @@ interface SettingsViewProps {
   onUpdateProfile: (profile: Partial<SpiritualProfile>) => void;
   onResetData: () => void;
   onNavigateToRoutine?: () => void;
+  onOpenSyncCenter?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   profile,
   onUpdateProfile,
   onResetData,
-  onNavigateToRoutine
+  onNavigateToRoutine,
+  onOpenSyncCenter
 }) => {
   // State for all Spiritual Profile fields
   const [name, setName] = useState(profile.name);
@@ -635,10 +637,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </section>
 
       {/* Arquitetura de Sincronização Supabase */}
-      <section className="p-5 sm:p-6 rounded-2xl bg-[#F2F7F4] dark:bg-[#1B2521] border border-[#29523F]/20 shadow-xs space-y-2">
-        <div className="flex items-center gap-2 text-xs font-bold text-[#29523F] dark:text-[#4F8E71] uppercase tracking-wider">
-          <Cloud className="w-4 h-4" />
-          <span>Arquitetura de Sincronização Cloud (Supabase-Ready)</span>
+      <section className="p-5 sm:p-6 rounded-2xl bg-[#F2F7F4] dark:bg-[#1B2521] border border-[#29523F]/20 shadow-xs space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-bold text-[#29523F] dark:text-[#4F8E71] uppercase tracking-wider">
+            <Cloud className="w-4 h-4" />
+            <span>Arquitetura de Sincronização Cloud (Supabase-Ready)</span>
+          </div>
+          {onOpenSyncCenter && (
+            <button
+              type="button"
+              id="open-sync-center-from-settings"
+              onClick={onOpenSyncCenter}
+              className="py-1.5 px-3.5 rounded-xl bg-[#162E23] hover:bg-[#1F3F30] text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>Gerenciar Sincronização & Nuvem</span>
+            </button>
+          )}
         </div>
         <h4 className="text-sm font-bold text-[#19211D] dark:text-[#F1F4F2]">
           Modelo Local-First Desacoplado & Seguro

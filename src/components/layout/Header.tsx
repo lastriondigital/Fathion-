@@ -10,6 +10,7 @@ import {
   Bell
 } from 'lucide-react';
 import { SpiritualProfile } from '../../types';
+import { SyncBadge } from '../sync/SyncBadge';
 
 interface HeaderProps {
   profile: SpiritualProfile;
@@ -21,6 +22,7 @@ interface HeaderProps {
   activeTabTitle: string;
   unreadNotificationsCount?: number;
   onOpenNotifications?: () => void;
+  onOpenSyncCenter?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -32,7 +34,8 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleDarkMode,
   activeTabTitle,
   unreadNotificationsCount = 0,
-  onOpenNotifications
+  onOpenNotifications,
+  onOpenSyncCenter
 }) => {
   // Obter saudação com base na hora
   const now = new Date();
@@ -76,6 +79,9 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Actions & Tools */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Sync & Cloud Status Badge */}
+          <SyncBadge onClick={onOpenSyncCenter} />
+
           {/* Consistency Streak Badge */}
           <div 
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/40 text-amber-900 dark:text-amber-200 text-xs font-semibold"

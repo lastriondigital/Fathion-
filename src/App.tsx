@@ -26,13 +26,23 @@ import { PrayerTimerModal } from './components/prayer/PrayerTimerModal';
 import { NewTaskModal } from './components/tasks/NewTaskModal';
 import { NotificationsDrawer } from './components/common/NotificationsDrawer';
 import { ReflectionModal } from './components/reflection/ReflectionModal';
+import { SyncCenterModal } from './components/sync/SyncCenterModal';
 
-// Storage & Services & Data
+// Storage & Services & Data & Supabase Repositories
 import { FaithionStorageService } from './services/storage';
+import { SyncEngine } from './services/syncEngine';
 import { NotificationService } from './services/notificationService';
 import { evaluateNextAction } from './services/priorityEngine';
 import { JourneyGuideService } from './services/journeyGuideService';
 import { INITIAL_VERSE_OF_THE_DAY } from './data/bibleData';
+import { useAuth } from './lib/auth';
+import { 
+  ProfileRepository,
+  DailyTasksRepository,
+  PrayerRepository,
+  RoutinesRepository,
+  ReadingPlanRepository
+} from './services/repositories';
 import { 
   SpiritualProfile, 
   DailyTask, 
@@ -84,6 +94,14 @@ export default function App() {
     }
   }, [isDarkMode]);
 
+  // Inicializa o SyncEngine (Local-First, detecta conectividade e ouvintes)
+  useEffect(() => {
+    SyncEngine.init();
+  }, []);
+
+  // Supabase Auth Context
+  const { user, profile: authProfile } = useAuth();
+
   // Reactive Domain States
   const [profile, setProfile] = useState<SpiritualProfile>(() => FaithionStorageService.getProfile());
   const [tasks, setTasks] = useState<DailyTask[]>(() => FaithionStorageService.getDailyTasks());
@@ -111,6 +129,51 @@ export default function App() {
     FaithionStorageService.getAdaptationSuggestions()
   );
 
+  // Carrega dados reais do Supabase para o usuário autenticado (Local-First com sincronização transparente)
+  useEffect(() => {
+    if (!user) return;
+
+    let isMounted = true;
+
+    async function loadSupabaseUserData() {
+      try {
+        const [profileRes, tasksRes, prayersRes, routinesRes, plansRes] = await Promise.allSettled([
+          ProfileRepository.getProfile(),
+          DailyTasksRepository.getTasks(),
+          PrayerRepository.getPrayerRequests(),
+          RoutinesRepository.getActivities(),
+          ReadingPlanRepository.getPlans()
+        ]);
+
+        if (!isMounted) return;
+
+        if (profileRes.status === 'fulfilled' && profileRes.value.data) {
+          setProfile(profileRes.value.data);
+        }
+        if (tasksRes.status === 'fulfilled' && tasksRes.value.data && tasksRes.value.data.length > 0) {
+          setTasks(tasksRes.value.data);
+        }
+        if (prayersRes.status === 'fulfilled' && prayersRes.value.data && prayersRes.value.data.length > 0) {
+          setPrayers(prayersRes.value.data);
+        }
+        if (routinesRes.status === 'fulfilled' && routinesRes.value.data && routinesRes.value.data.length > 0) {
+          setRoutineActivities(routinesRes.value.data);
+        }
+        if (plansRes.status === 'fulfilled' && plansRes.value.data && plansRes.value.data.length > 0) {
+          setPlans(plansRes.value.data);
+        }
+      } catch (e) {
+        console.warn('[FAITHION] Modo offline ou erro ao carregar do Supabase:', e);
+      }
+    }
+
+    loadSupabaseUserData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
+
   // Modals state
   const [isGuidedActionOpen, setIsGuidedActionOpen] = useState(false);
   const [guidedTask, setGuidedTask] = useState<DailyTask | null>(null);
@@ -119,7 +182,24 @@ export default function App() {
   const [isPrayerTimerOpen, setIsPrayerTimerOpen] = useState(false);
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
   const [isNotificationsDrawerOpen, setIsNotificationsDrawerOpen] = useState(false);
+  const [isSyncCenterOpen, setIsSyncCenterOpen] = useState(false);
   const [bibleTarget, setBibleTarget] = useState<{ bookId?: string; chapter?: number } | null>(null);
+
+  const refreshAllData = () => {
+    setProfile(FaithionStorageService.getProfile());
+    setTasks(FaithionStorageService.getDailyTasks());
+    setPlans(FaithionStorageService.getReadingPlans());
+    setPrayers(FaithionStorageService.getPrayerRequests());
+    setPrayerPlans(FaithionStorageService.getPrayerPlans());
+    setFastingPlan(FaithionStorageService.getFastingPlan());
+    setFastingRecords(FaithionStorageService.getFastingRecords());
+    setReflections(FaithionStorageService.getReflections());
+    setConsistencyHistory(FaithionStorageService.getConsistencyHistory());
+    setObjectives(FaithionStorageService.getObjectives());
+    setRoutineActivities(FaithionStorageService.getRoutineActivities());
+    setExecutionLogs(FaithionStorageService.getExecutionLogs());
+    setAdaptationSuggestions(FaithionStorageService.getAdaptationSuggestions());
+  };
 
   // Cross-module contextual triggers
   const [isReflectionModalOpen, setIsReflectionModalOpen] = useState(false);
@@ -280,10 +360,11 @@ export default function App() {
     });
 
     if (guideResult.currentActivity) {
-      const task1 = tasks.find(t => t.id === guideResult.currentActivity?.id) || {
+      const task1: DailyTask = tasks.find(t => t.id === guideResult.currentActivity?.id) || {
         id: guideResult.currentActivity.id,
         title: guideResult.currentActivity.title,
         category: guideResult.currentActivity.category,
+        timeOfDay: 'anytime',
         passageReference: guideResult.currentActivity.passageReference,
         estimatedMinutes: guideResult.currentActivity.estimatedMinutes,
         scheduledTime: guideResult.currentActivity.scheduledTime || 'Agora',
@@ -295,10 +376,11 @@ export default function App() {
       setGuidedTask(task1);
 
       if (guideResult.nextActivity) {
-        const task2 = tasks.find(t => t.id === guideResult.nextActivity?.id) || {
+        const task2: DailyTask = tasks.find(t => t.id === guideResult.nextActivity?.id) || {
           id: guideResult.nextActivity.id,
           title: guideResult.nextActivity.title,
           category: guideResult.nextActivity.category,
+          timeOfDay: 'anytime',
           passageReference: guideResult.nextActivity.passageReference,
           estimatedMinutes: guideResult.nextActivity.estimatedMinutes,
           scheduledTime: guideResult.nextActivity.scheduledTime || 'Depois',
@@ -331,37 +413,50 @@ export default function App() {
     const updated = FaithionStorageService.toggleTask(id);
     setTasks(updated);
     setConsistencyHistory(FaithionStorageService.getConsistencyHistory());
+    // Sincroniza em nuvem no Supabase caso autenticado
+    DailyTasksRepository.toggleTaskCompletion(id).catch(() => {});
   };
 
   const handleStartTask = (id: string) => {
     const updated = FaithionStorageService.startTask(id);
     setTasks(updated);
+    const task = updated.find(t => t.id === id);
+    if (task) DailyTasksRepository.upsertTask(task).catch(() => {});
   };
 
   const handleCompleteTask = (id: string, notes?: string) => {
     const { tasks: updated } = FaithionStorageService.completeTask(id, notes);
     setTasks(updated);
     setConsistencyHistory(FaithionStorageService.getConsistencyHistory());
+    const task = updated.find(t => t.id === id);
+    if (task) DailyTasksRepository.upsertTask(task).catch(() => {});
   };
 
   const handleIgnoreTask = (id: string, reason?: string) => {
     const updated = FaithionStorageService.ignoreTask(id, reason);
     setTasks(updated);
+    const task = updated.find(t => t.id === id);
+    if (task) DailyTasksRepository.upsertTask(task).catch(() => {});
   };
 
   const handleCancelTask = (id: string, reason?: string) => {
     const updated = FaithionStorageService.cancelTask(id, reason);
     setTasks(updated);
+    const task = updated.find(t => t.id === id);
+    if (task) DailyTasksRepository.upsertTask(task).catch(() => {});
   };
 
   const handleSetTaskStatus = (id: string, status: ActivityStatus, notes?: string) => {
     const updated = FaithionStorageService.setTaskStatus(id, status, notes);
     setTasks(updated);
+    const task = updated.find(t => t.id === id);
+    if (task) DailyTasksRepository.upsertTask(task).catch(() => {});
   };
 
   const handleAddTask = (newTaskData: Omit<DailyTask, 'id' | 'order' | 'completed'>) => {
-    FaithionStorageService.addTask(newTaskData);
+    const created = FaithionStorageService.addTask(newTaskData);
     setTasks(FaithionStorageService.getDailyTasks());
+    if (created) DailyTasksRepository.upsertTask(created).catch(() => {});
   };
 
   // Handlers de Notificações
@@ -379,23 +474,29 @@ export default function App() {
 
   // Handlers de Rotina Pessoal
   const handleAddRoutineActivity = (act: Omit<RoutineActivity, 'id' | 'order'>) => {
-    FaithionStorageService.addRoutineActivity(act);
+    const created = FaithionStorageService.addRoutineActivity(act);
     setRoutineActivities(FaithionStorageService.getRoutineActivities());
+    if (created) RoutinesRepository.upsertActivity(created).catch(() => {});
   };
 
   const handleUpdateRoutineActivity = (id: string, updates: Partial<RoutineActivity>) => {
     const updated = FaithionStorageService.updateRoutineActivity(id, updates);
     setRoutineActivities(updated);
+    const activity = updated.find(a => a.id === id);
+    if (activity) RoutinesRepository.upsertActivity(activity).catch(() => {});
   };
 
   const handleDeleteRoutineActivity = (id: string) => {
     const updated = FaithionStorageService.deleteRoutineActivity(id);
     setRoutineActivities(updated);
+    RoutinesRepository.deleteActivity(id).catch(() => {});
   };
 
   const handleToggleActivityActive = (id: string) => {
     const updated = FaithionStorageService.toggleActivityActive(id);
     setRoutineActivities(updated);
+    const activity = updated.find(a => a.id === id);
+    if (activity) RoutinesRepository.upsertActivity(activity).catch(() => {});
   };
 
   const handleReorderActivities = (block: RoutineBlock, orderedIds: string[]) => {
@@ -452,16 +553,21 @@ export default function App() {
   const handleTogglePlanDay = (planId: string, dayNumber: number) => {
     const updated = FaithionStorageService.togglePlanDay(planId, dayNumber);
     setPlans(updated);
+    const plan = updated.find(p => p.id === planId);
+    if (plan) ReadingPlanRepository.upsertPlan(plan).catch(() => {});
   };
 
   const handleSetActivePlan = (planId: string) => {
     const updated = FaithionStorageService.setActivePlan(planId);
     setPlans(updated);
+    const plan = updated.find(p => p.id === planId);
+    if (plan) ReadingPlanRepository.upsertPlan(plan).catch(() => {});
   };
 
   const handleCreatePlan = (plan: ReadingPlan) => {
     const updated = FaithionStorageService.addReadingPlan(plan);
     setPlans(updated);
+    ReadingPlanRepository.upsertPlan(plan).catch(() => {});
   };
 
   const handleUpdatePlan = (planId: string, updates: Partial<ReadingPlan>) => {
@@ -526,28 +632,36 @@ export default function App() {
 
   // Handlers de Oração
   const handleAddPrayer = (newPrayerData: Omit<PrayerRequest, 'id' | 'createdAt' | 'answered' | 'timesPrayed'>) => {
-    FaithionStorageService.addPrayerRequest(newPrayerData);
+    const created = FaithionStorageService.addPrayerRequest(newPrayerData);
     setPrayers(FaithionStorageService.getPrayerRequests());
+    if (created) PrayerRepository.upsertPrayerRequest(created).catch(() => {});
   };
 
   const handleUpdatePrayer = (id: string, updates: Partial<PrayerRequest>) => {
     const updated = FaithionStorageService.updatePrayerRequest(id, updates);
     setPrayers(updated);
+    const prayer = updated.find(p => p.id === id);
+    if (prayer) PrayerRepository.upsertPrayerRequest(prayer).catch(() => {});
   };
 
   const handleDeletePrayer = (id: string) => {
     const updated = FaithionStorageService.deletePrayerRequest(id);
     setPrayers(updated);
+    PrayerRepository.deletePrayerRequest(id).catch(() => {});
   };
 
   const handleSetPrayerStatus = (id: string, status: PrayerStatus, answer?: string, notes?: string) => {
     const updated = FaithionStorageService.setPrayerStatus(id, status, answer, notes);
     setPrayers(updated);
+    const prayer = updated.find(p => p.id === id);
+    if (prayer) PrayerRepository.upsertPrayerRequest(prayer).catch(() => {});
   };
 
   const handleTogglePrayerAnswered = (id: string, testimony?: string) => {
     const updated = FaithionStorageService.togglePrayerAnswered(id, testimony);
     setPrayers(updated);
+    const prayer = updated.find(p => p.id === id);
+    if (prayer) PrayerRepository.upsertPrayerRequest(prayer).catch(() => {});
   };
 
   const handleFinishPrayerSession = (prayerIds: string[], minutes: number) => {
@@ -655,6 +769,7 @@ export default function App() {
   const handleUpdateProfile = (updates: Partial<SpiritualProfile>) => {
     const updated = FaithionStorageService.updateProfile(updates);
     setProfile(updated);
+    ProfileRepository.saveProfile(updated).catch(() => {});
   };
 
   const handleUpdateProfileGoals = (prayerMins: number, chapters: number) => {
@@ -663,6 +778,7 @@ export default function App() {
       dailyBibleChaptersGoal: chapters
     });
     setProfile(updated);
+    ProfileRepository.saveProfile(updated).catch(() => {});
   };
 
   const handleResetData = () => {
@@ -694,6 +810,7 @@ export default function App() {
         activeTabTitle={activeTab}
         unreadNotificationsCount={notifications.filter(n => !n.read).length}
         onOpenNotifications={() => setIsNotificationsDrawerOpen(true)}
+        onOpenSyncCenter={() => setIsSyncCenterOpen(true)}
       />
 
       {/* Main Container: Sidebar + Active View Content */}
@@ -882,6 +999,14 @@ export default function App() {
               profile={profile}
               answeredPrayersCount={prayers.filter(p => p.answered).length}
               totalPrayersCount={prayers.length}
+              plans={plans}
+              prayerPlans={prayerPlans}
+              prayers={prayers}
+              fastingRecords={fastingRecords}
+              reflections={reflections}
+              routineActivities={routineActivities}
+              executionLogs={executionLogs}
+              onNavigateToTab={(tab) => setActiveTab(tab as any)}
             />
           )}
 
@@ -891,6 +1016,7 @@ export default function App() {
               onUpdateProfile={handleUpdateProfile}
               onResetData={handleResetData}
               onNavigateToRoutine={() => setActiveTab('routine')}
+              onOpenSyncCenter={() => setIsSyncCenterOpen(true)}
             />
           )}
 
@@ -974,6 +1100,12 @@ export default function App() {
         }}
         relatedTitle={reflectionModalContext?.title}
         scriptureRef={reflectionModalContext?.passage}
+      />
+
+      <SyncCenterModal
+        isOpen={isSyncCenterOpen}
+        onClose={() => setIsSyncCenterOpen(false)}
+        onDataRestored={refreshAllData}
       />
 
     </div>

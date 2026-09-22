@@ -31,7 +31,8 @@ import {
   BibleFontSize,
   BibleFontFamily,
   WordOfTheDay,
-  WordOfTheDayHistoryItem
+  WordOfTheDayHistoryItem,
+  PracticeRecord
 } from '../types';
 import { WordOfTheDayService, PersonalizationContext } from './wordOfTheDayService';
 import { 
@@ -55,7 +56,8 @@ import {
   INITIAL_OBJECTIVES,
   INITIAL_ROUTINE_ACTIVITIES,
   INITIAL_EXECUTION_LOGS,
-  INITIAL_ADAPTATION_SUGGESTIONS
+  INITIAL_ADAPTATION_SUGGESTIONS,
+  INITIAL_PRACTICE_RECORDS
 } from '../data/initialData';
 
 const STORAGE_KEYS = {
@@ -79,8 +81,12 @@ const STORAGE_KEYS = {
   BIBLE_HISTORY: 'faithion_bible_history_v1',
   BIBLE_LAST_READ: 'faithion_bible_last_read_v1',
   BIBLE_SETTINGS: 'faithion_bible_settings_v1',
+  PRACTICE_RECORDS: 'faithion_practice_records_v1',
   SYNC_METADATA: 'faithion_sync_meta_v1'
 };
+
+type StorageListener = (key: string, value: any) => void;
+const storageListeners: StorageListener[] = [];
 
 function safeGet<T>(key: string, fallback: T): T {
   try {
@@ -96,6 +102,13 @@ function safeGet<T>(key: string, fallback: T): T {
 function safeSet<T>(key: string, value: T): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    storageListeners.forEach(listener => {
+      try {
+        listener(key, value);
+      } catch (err) {
+        console.warn(`[Faithion Storage] Listener error for key ${key}:`, err);
+      }
+    });
   } catch (e) {
     console.error(`[Faithion Storage] Failed to save key "${key}".`, e);
   }
@@ -120,6 +133,18 @@ export class FaithionStorageService {
     const updated = { ...current, ...profile };
     safeSet(STORAGE_KEYS.PROFILE, updated);
     return updated;
+  }
+
+  static saveProfile(profile: SpiritualProfile): void {
+    safeSet(STORAGE_KEYS.PROFILE, profile);
+  }
+
+  static addChangeListener(listener: StorageListener): () => void {
+    storageListeners.push(listener);
+    return () => {
+      const idx = storageListeners.indexOf(listener);
+      if (idx >= 0) storageListeners.splice(idx, 1);
+    };
   }
 
   // --- Objectives (Objetivos Espirituais Pessoais) ---
@@ -186,6 +211,12 @@ export class FaithionStorageService {
 
   static deleteRoutineActivity(id: string): RoutineActivity[] {
     const current = this.getRoutineActivities();
+    const target = current.find(a => a.id === id);
+    // NUNCA APAGAR HISTÓRICO: Guarda a atividade arquivada para que logs antigos nunca percam sua referência
+    if (target) {
+      const archived = safeGet<RoutineActivity[]>('faithion_archived_routines_v1', []);
+      safeSet('faithion_archived_routines_v1', [target, ...archived.filter(a => a.id !== id)]);
+    }
     const updated = current.filter(a => a.id !== id);
     this.saveRoutineActivities(updated);
     return updated;
@@ -592,6 +623,12 @@ export class FaithionStorageService {
 
   static deleteReadingPlan(planId: string): ReadingPlan[] {
     const plans = this.getReadingPlans();
+    const target = plans.find(p => p.id === planId);
+    // NUNCA APAGAR HISTÓRICO: Arquiva o plano para manter rastreabilidade histórica de sessões de leitura
+    if (target) {
+      const archived = safeGet<ReadingPlan[]>('faithion_archived_plans_v1', []);
+      safeSet('faithion_archived_plans_v1', [target, ...archived.filter(p => p.id !== planId)]);
+    }
     const remaining = plans.filter(p => p.id !== planId);
     // Se o plano deletado era ativo, ativa o primeiro disponível se houver
     if (plans.find(p => p.id === planId)?.isActive && remaining.length > 0) {
@@ -1293,7 +1330,36 @@ export class FaithionStorageService {
     return updated;
   }
 
+  // --- Práticas & Cultos/Eventos Personalizados ---
+  static getPracticeRecords(): PracticeRecord[] {
+    return safeGet<PracticeRecord[]>(STORAGE_KEYS.PRACTICE_RECORDS, INITIAL_PRACTICE_RECORDS);
+  }
+
+  static savePracticeRecords(records: PracticeRecord[]): void {
+    safeSet(STORAGE_KEYS.PRACTICE_RECORDS, records);
+  }
+
+  static addPracticeRecord(data: Omit<PracticeRecord, 'id' | 'createdAt'>): PracticeRecord {
+    const records = this.getPracticeRecords();
+    const newRecord: PracticeRecord = {
+      ...data,
+      id: `prac-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      createdAt: new Date().toISOString()
+    };
+    records.unshift(newRecord);
+    this.savePracticeRecords(records);
+    return newRecord;
+  }
+
+  static deletePracticeRecord(id: string): PracticeRecord[] {
+    const records = this.getPracticeRecords();
+    const filtered = records.filter(r => r.id !== id);
+    this.savePracticeRecords(filtered);
+    return filtered;
+  }
+
   // --- INTEGRAÇÃO: Linha do Tempo Unificada da Jornada Espiritual ---
+  // Estrutura expressa da Timeline: Data → atividade → passagem → oração → reflexão → resultado
   static getUnifiedJourneyHistory(): JourneyEntry[] {
     const entries: JourneyEntry[] = [];
 
@@ -1309,9 +1375,19 @@ export class FaithionStorageService {
         subtitle: `Versão ${session.versionAbbr} • ${session.durationMinutes} min de meditação`,
         content: session.relatedPlanTitle ? `Plano: ${session.relatedPlanTitle} (Dia ${session.relatedPlanDayNumber || 1})` : undefined,
         passageRef: session.passageRef,
+        durationMinutes: session.durationMinutes,
+        chaptersCount: 1,
+        status: 'concluido',
         statusBadge: {
           label: 'Leitura Concluída',
           variant: 'emerald'
+        },
+        timelineData: {
+          activity: `Leitura Bíblica (${session.versionAbbr || 'NVI'})`,
+          passage: session.passageRef,
+          prayer: session.relatedPlanTitle ? `Consagração do plano ${session.relatedPlanTitle}` : undefined,
+          reflection: session.notes,
+          result: `Concluída (${session.durationMinutes} min dedicados)`
         },
         details: [
           { label: 'Passagem', value: session.passageRef },
@@ -1325,7 +1401,7 @@ export class FaithionStorageService {
     prayers.forEach(prayer => {
       const isAnswered = prayer.status === 'respondido' || prayer.status === 'agradecimento';
       let badgeLabel = 'Oração Ativa';
-      let badgeVariant: 'neutral' | 'emerald' | 'amber' | 'sky' | 'rose' = 'sky';
+      let badgeVariant: 'neutral' | 'emerald' | 'amber' | 'sky' | 'rose' | 'purple' = 'sky';
       if (prayer.status === 'em_oracao') {
         badgeLabel = 'Em Clamor';
         badgeVariant = 'amber';
@@ -1348,9 +1424,19 @@ export class FaithionStorageService {
         title: prayer.title,
         subtitle: prayer.person ? `Intercessão por: ${prayer.person}` : `Categoria: ${prayer.category}`,
         content: isAnswered && prayer.answer ? `Testemunho: "${prayer.answer}"` : prayer.description,
+        prayerText: prayer.title + (prayer.description ? ` — ${prayer.description}` : ''),
+        passageRef: prayer.scriptureReferences?.[0],
+        status: isAnswered ? 'concluido' : 'planejado',
         statusBadge: {
           label: badgeLabel,
           variant: badgeVariant
+        },
+        timelineData: {
+          activity: 'Oração & Intercessão',
+          passage: prayer.scriptureReferences?.[0],
+          prayer: prayer.title + (prayer.description ? ` — ${prayer.description}` : ''),
+          reflection: prayer.notes,
+          result: isAnswered && prayer.answer ? `Respondida: "${prayer.answer}"` : `Em clamor (${prayer.timesPrayed}x apresentada)`
         },
         details: [
           { label: 'Status', value: badgeLabel },
@@ -1363,19 +1449,25 @@ export class FaithionStorageService {
     const fasts = this.getFastingRecords();
     fasts.forEach(fast => {
       let badgeLabel = 'Jejum Planejado';
-      let badgeVariant: 'neutral' | 'emerald' | 'amber' | 'sky' | 'rose' = 'neutral';
+      let badgeVariant: 'neutral' | 'emerald' | 'amber' | 'sky' | 'rose' | 'purple' = 'neutral';
+      let fastStatus: 'concluido' | 'parcial' | 'ignorado' | 'atrasado' | 'planejado' = 'planejado';
+
       if (fast.status === 'em_andamento') {
         badgeLabel = 'Em Andamento';
         badgeVariant = 'amber';
+        fastStatus = 'planejado';
       } else if (fast.status === 'concluido') {
         badgeLabel = 'Concluído com Vitória';
         badgeVariant = 'emerald';
+        fastStatus = 'concluido';
       } else if (fast.status === 'interrompido') {
         badgeLabel = 'Interrompido';
         badgeVariant = 'rose';
+        fastStatus = 'parcial';
       } else if (fast.status === 'cancelado') {
         badgeLabel = 'Cancelado';
         badgeVariant = 'neutral';
+        fastStatus = 'ignorado';
       }
 
       entries.push({
@@ -1387,9 +1479,19 @@ export class FaithionStorageService {
         subtitle: `Duração prevista: ${fast.targetHours}h • Tipo: ${fast.type}`,
         content: fast.reflectionsDuringFast ? `Reflexão do Jejum: "${fast.reflectionsDuringFast}"` : fast.notes,
         passageRef: fast.relatedPassage,
+        prayerText: fast.relatedPrayerTitle,
+        reflectionText: fast.reflectionsDuringFast || fast.notes,
+        status: fastStatus,
         statusBadge: {
           label: badgeLabel,
           variant: badgeVariant
+        },
+        timelineData: {
+          activity: `Jejum Espiritual (${fast.type})`,
+          passage: fast.relatedPassage,
+          prayer: fast.relatedPrayerTitle || `Propósito: ${fast.purpose}`,
+          reflection: fast.reflectionsDuringFast || fast.notes,
+          result: `Alvo: ${fast.targetHours}h • Status: ${badgeLabel}`
         },
         details: [
           { label: 'Horário', value: `${fast.startTime.slice(11, 16) || '06:00'} às ${fast.endTime.slice(11, 16) || '18:00'}` },
@@ -1419,6 +1521,10 @@ export class FaithionStorageService {
         content: summaryParts.length > 0 ? summaryParts.join(' • ') : (refl.whatGodSpoke || 'Reflexão registrada.'),
         passageRef: refl.scriptureRef,
         scriptureRef: refl.scriptureRef,
+        prayerText: refl.personalPrayer,
+        reflectionText: refl.whatLearned || refl.whatGodSpoke || refl.whatCaughtAttention,
+        resultNotes: refl.howToApply,
+        status: 'concluido',
         description: refl.notes || refl.whatGodSpoke,
         relatedTitle: refl.relatedTitle,
         reflection: refl,
@@ -1426,9 +1532,149 @@ export class FaithionStorageService {
           label: 'Reflexão Registrada',
           variant: 'amber'
         },
+        timelineData: {
+          activity: 'Reflexão & Diário Devocional',
+          passage: refl.scriptureRef,
+          prayer: refl.personalPrayer,
+          reflection: refl.whatLearned || refl.whatGodSpoke || refl.whatCaughtAttention,
+          result: refl.howToApply ? `Aplicação Prática: ${refl.howToApply}` : 'Reflexão guardada no coração'
+        },
         details: [
           { label: 'Data', value: refl.date },
           { label: 'Registros', value: `${summaryParts.length} tópicos` }
+        ]
+      });
+    });
+
+    // 5. Planos de Leitura (Dias Concluídos dos Planos Ativos e Passados)
+    const plans = this.getReadingPlans();
+    plans.forEach(plan => {
+      plan.days.forEach(day => {
+        if (day.completed) {
+          const completedDate = day.completedAt ? day.completedAt.split('T')[0] : (plan.startedAt || '2026-09-15');
+          const completedTimestamp = day.completedAt || `${completedDate}T10:00:00Z`;
+
+          entries.push({
+            id: `journey-plan-${plan.id}-day-${day.dayNumber}`,
+            date: completedDate,
+            timestamp: completedTimestamp,
+            type: 'plan',
+            title: `Plano: ${plan.title} (Dia ${day.dayNumber})`,
+            subtitle: day.title || day.passageRef,
+            content: day.devotionalPrompt ? `Estudo: ${day.devotionalPrompt}` : `Leitura: ${day.passageRef}`,
+            passageRef: day.passageRef,
+            chaptersCount: 1,
+            status: 'concluido',
+            statusBadge: {
+              label: 'Plano em Dia',
+              variant: 'purple'
+            },
+            timelineData: {
+              activity: `Plano de Leitura: ${plan.title}`,
+              passage: day.passageRef,
+              prayer: undefined,
+              reflection: day.devotionalPrompt,
+              result: `Dia ${day.dayNumber} concluído com fidelidade`
+            },
+            details: [
+              { label: 'Plano', value: plan.title },
+              { label: 'Etapa', value: `Dia ${day.dayNumber} de ${plan.durationDays}` }
+            ]
+          });
+        }
+      });
+    });
+
+    // 6. Atividades de Rotina (Execution Logs)
+    const logs = this.getExecutionLogs();
+    logs.forEach(log => {
+      const isConcluido = log.status === 'concluido';
+      const isPulado = log.status === 'pulado';
+      entries.push({
+        id: `journey-log-${log.id}`,
+        date: log.date,
+        timestamp: log.loggedAt || `${log.date}T18:00:00Z`,
+        type: 'activity',
+        title: `Rotina: ${log.activityName}`,
+        subtitle: `Bloco: ${log.block === 'morning' ? 'Manhã' : (log.block === 'night' ? 'Noite' : 'Dia')}`,
+        content: log.quickReflection || (isPulado ? 'Atividade ignorada/pulada no dia' : 'Prática diária concluída'),
+        durationMinutes: log.actualMinutes || log.plannedMinutes,
+        status: isConcluido ? 'concluido' : (isPulado ? 'ignorado' : 'parcial'),
+        statusBadge: {
+          label: isConcluido ? 'Atividade Cumprida' : (isPulado ? 'Ignorada' : 'Parcial'),
+          variant: isConcluido ? 'emerald' : (isPulado ? 'neutral' : 'amber')
+        },
+        timelineData: {
+          activity: `Atividade de Rotina: ${log.activityName}`,
+          passage: undefined,
+          prayer: log.activityName.toLowerCase().includes('oração') ? log.activityName : undefined,
+          reflection: log.quickReflection,
+          result: `${isConcluido ? 'Concluído' : log.status} (${log.actualMinutes || log.plannedMinutes} min)`
+        },
+        details: [
+          { label: 'Tempo', value: `${log.actualMinutes || log.plannedMinutes} min` },
+          { label: 'Status', value: log.status }
+        ]
+      });
+    });
+
+    // 7. Práticas Personalizadas, Cultos/Eventos, Estudos e Memorização
+    const practiceRecords = this.getPracticeRecords();
+    practiceRecords.forEach(prac => {
+      let badgeLabel = 'Prática Concluída';
+      let badgeVariant: 'neutral' | 'emerald' | 'amber' | 'sky' | 'rose' | 'purple' = 'emerald';
+
+      if (prac.type === 'event') {
+        badgeLabel = 'Culto / Evento';
+        badgeVariant = 'purple';
+      } else if (prac.type === 'study') {
+        badgeLabel = 'Estudo Bíblico';
+        badgeVariant = 'sky';
+      } else if (prac.type === 'memorization') {
+        badgeLabel = 'Memorização';
+        badgeVariant = 'emerald';
+      } else if (prac.type === 'custom') {
+        badgeLabel = 'Prática Pessoal';
+        badgeVariant = 'amber';
+      }
+
+      if (prac.status === 'ignorado') {
+        badgeVariant = 'neutral';
+        badgeLabel = 'Ignorado';
+      } else if (prac.status === 'atrasado') {
+        badgeVariant = 'rose';
+        badgeLabel = 'Atrasado';
+      }
+
+      entries.push({
+        id: `journey-prac-${prac.id}`,
+        date: prac.date,
+        timestamp: prac.createdAt,
+        type: prac.type,
+        title: prac.title,
+        subtitle: prac.locationOrLeader || (prac.durationMinutes ? `${prac.durationMinutes} minutos dedicados` : undefined),
+        content: prac.resultSummary || prac.reflectionNotes || prac.notes,
+        passageRef: prac.passageRef,
+        prayerText: prac.prayerFocus,
+        reflectionText: prac.reflectionNotes,
+        resultNotes: prac.resultSummary,
+        durationMinutes: prac.durationMinutes,
+        chaptersCount: prac.chaptersCount,
+        status: prac.status,
+        statusBadge: {
+          label: badgeLabel,
+          variant: badgeVariant
+        },
+        timelineData: {
+          activity: prac.type === 'event' ? `Culto/Evento: ${prac.title}` : (prac.type === 'study' ? `Estudo Bíblico: ${prac.title}` : (prac.type === 'memorization' ? `Memorização: ${prac.title}` : `Prática: ${prac.title}`)),
+          passage: prac.passageRef,
+          prayer: prac.prayerFocus,
+          reflection: prac.reflectionNotes,
+          result: prac.resultSummary || (prac.status === 'concluido' ? 'Concluído com êxito' : prac.status)
+        },
+        details: [
+          { label: 'Tipo', value: badgeLabel },
+          { label: 'Data', value: prac.date }
         ]
       });
     });
@@ -1464,7 +1710,14 @@ export class FaithionStorageService {
 
   // --- Consistency & Progress (Princípio: MONITORAR & ADAPTAR) ---
   static getConsistencyHistory(): DailyConsistency[] {
-    return safeGet<DailyConsistency[]>(STORAGE_KEYS.CONSISTENCY, INITIAL_CONSISTENCY_HISTORY);
+    const stored = safeGet<DailyConsistency[]>(STORAGE_KEYS.CONSISTENCY, INITIAL_CONSISTENCY_HISTORY);
+    if (stored && stored.length < 50 && INITIAL_CONSISTENCY_HISTORY.length >= 80) {
+      const storedDates = new Set(stored.map(s => s.date));
+      const missingFromInitial = INITIAL_CONSISTENCY_HISTORY.filter(i => !storedDates.has(i.date));
+      const merged = [...missingFromInitial, ...stored].sort((a, b) => a.date.localeCompare(b.date));
+      return merged;
+    }
+    return stored;
   }
 
   static saveConsistencyHistory(history: DailyConsistency[]): void {
@@ -1710,6 +1963,14 @@ export class FaithionStorageService {
     safeSet(STORAGE_KEYS.BIBLE_NOTES, notes);
   }
 
+  static saveBibleNotes(notes: BibleNote[]): void {
+    safeSet(STORAGE_KEYS.BIBLE_NOTES, notes);
+  }
+
+  static getWordHistory(): WordOfTheDayHistoryItem[] {
+    return WordOfTheDayService.getHistory();
+  }
+
   // --- Bible Reading History & Sessions ---
   static getBibleReadingHistory(): BibleReadingSession[] {
     return safeGet<BibleReadingSession[]>(STORAGE_KEYS.BIBLE_HISTORY, [
@@ -1915,8 +2176,10 @@ export class FaithionStorageService {
   static getSyncMetadata(): SupabaseSyncMetadata {
     return safeGet<SupabaseSyncMetadata>(STORAGE_KEYS.SYNC_METADATA, {
       lastSyncedAt: null,
-      syncStatus: 'local_only',
-      pendingMutationsCount: 0
+      syncStatus: 'offline',
+      pendingMutationsCount: 0,
+      isOnline: typeof navigator !== 'undefined' ? navigator.onLine : false,
+      isSupabaseConfigured: false
     });
   }
 }
